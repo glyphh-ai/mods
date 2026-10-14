@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Workspaces probe</title>
+<!-- A page for measuring the layout page (WORKSPACES_DEBUG=1 only): the
+     square at the top left changes colour on every mousedown and every
+     scroll, so the time from an input to its picture can be read off the
+     video. The page is tall and striped so a scroll moves it. -->
+<style>
+  html, body { margin: 0; }
+  body { height: 6000px; background: repeating-linear-gradient(#e8e8e8 0 120px, #c8c8c8 120px 240px); }
+  #mark { position: fixed; left: 0; top: 0; width: 120px; height: 120px; background: #ff0000; }
+</style>
+</head>
+<body>
+<div id="mark"></div>
+<script>
+  const mark = document.getElementById("mark")
+  let on = false
+  const flip = () => { on = !on; mark.style.background = on ? "#0000ff" : "#ff0000" }
+  addEventListener("mousedown", flip)
+  addEventListener("scroll", flip, { passive: true })
+</script>
+</body>
+</html>

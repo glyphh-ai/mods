@@ -2,7 +2,8 @@
 // browser cell, each screencasting its JPEG frames, input replayed over CDP.
 //
 // startChrome({ quality, onFrame, onNav, onTitle, onExit }) → { open, op, text, shutdown, pages }
-//   onFrame  (page, bytes) for every frame, already acknowledged
+//   onFrame  (page, bytes, { captured }) for every frame, already acknowledged;
+//            `captured` is when Chrome took it, in ms since the epoch
 //
 // The profile is a lasting one (sign-ins kept) unless another Chrome holds it:
 // then a throwaway one, so two sessions never fight over one profile.
@@ -43,12 +44,6 @@ export async function startChrome({ quality = 80, onFrame, onNav, onTitle, onExi
     // tab (Chrome stops painting those, and their stream goes blank).
     "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
-    // The bridge page encodes cells as video with nobody clicking first.
-    "--autoplay-policy=no-user-gesture-required",
-    // WebRTC between this Chrome and the layout page, both on this machine:
-    // real local addresses (no mDNS names), loopback allowed.
-    "--allow-loopback-in-peer-connection",
-    "--disable-features=WebRtcHideLocalIpsWithMdns",
     "about:blank",
   ], { stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"] })
   chrome.on("exit", code => onExit?.(code))
@@ -82,7 +77,7 @@ export async function startChrome({ quality = 80, onFrame, onNav, onTitle, onExi
       send("Page.screencastFrameAck", { sessionId: msg.params.sessionId }, page.session).catch(() => {})
       if (page.live) {
         page.gen += 1
-        onFrame?.(page, Buffer.from(msg.params.data, "base64"))
+        onFrame?.(page, Buffer.from(msg.params.data, "base64"), { captured: (msg.params.metadata?.timestamp ?? 0) * 1000 })
       }
     } else if (msg.method === "Page.frameNavigated" && !msg.params.frame.parentId) {
       page.url = msg.params.frame.url
@@ -119,7 +114,7 @@ export async function startChrome({ quality = 80, onFrame, onNav, onTitle, onExi
   }
 
   /** Open a cell's page, or bring a parked one back at a (new) size. */
-  async function open({ cell, url, w, h, scale = 1, cast: casts = true }) {
+  async function open({ cell, url, w, h, scale = 1 }) {
     let page = pages.get(cell)
     if (page) {
       const resized = page.w !== Math.round(w) || page.h !== Math.round(h) || page.scale !== scale
@@ -135,7 +130,7 @@ export async function startChrome({ quality = 80, onFrame, onNav, onTitle, onExi
     }
     const { targetId } = await send("Target.createTarget", { url: "about:blank", newWindow: true, background: false })
     const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true })
-    page = { cell, target: targetId, session: sessionId, w: 0, h: 0, scale: 1, gen: 0, live: casts, url, title: "" }
+    page = { cell, target: targetId, session: sessionId, w: 0, h: 0, scale: 1, gen: 0, live: true, url, title: "" }
     pages.set(cell, page)
     sessions.set(sessionId, cell)
     await send("Page.enable", {}, sessionId)

@@ -32,11 +32,11 @@
     border-radius: 5px; padding: 3px 7px; font: 12px ui-monospace, Menlo, monospace; }
   .bar .title { color: var(--dim); font-size: 12px; max-width: 30%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .view { position: relative; flex: 1; min-height: 0; background: #fff; }
-  .view img, .view video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; user-select: none; -webkit-user-drag: none; }
-  .view video { display: none; background: #fff; }
-  .view.rtc video { display: block; } .view.rtc img { display: none; }
-  .bar .via { font: 10px ui-monospace, Menlo, monospace; color: var(--dim); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
-  .bar .via.rtc { color: var(--accent); border-color: var(--accent); }
+  .view canvas { position: absolute; inset: 0; width: 100%; height: 100%; user-select: none; }
+  /* A click answers at once, before the page's own picture does. */
+  .ripple { position: absolute; width: 28px; height: 28px; margin: -14px 0 0 -14px; border-radius: 50%;
+    background: rgba(167, 139, 250, 0.45); pointer-events: none; animation: ripple 0.35s ease-out forwards; }
+  @keyframes ripple { from { transform: scale(0.3); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
   .view .input { position: absolute; inset: 0; outline: none; cursor: default; }
   .view .input:focus { box-shadow: inset 0 0 0 2px var(--accent); }
   .native { flex: 1; display: grid; place-items: center; color: var(--dim); text-align: center; padding: 12px; }
@@ -53,6 +53,10 @@
 // The session's token, put here by the server; the one-time key leaves the address.
 const T = "__WORKSPACES_TOKEN__"
 const START_VIEW = new URLSearchParams(location.search).get("view")
+// WORKSPACES_DEBUG=1 (the helper's): input → picture measured (WORKSPACES_DEBUG below).
+const DEBUG = __WORKSPACES_DEBUG__
+let seqN = 0
+const stamp = () => (DEBUG ? { seq: ++seqN, t: Date.now() } : {})
 history.replaceState(null, "", "/")
 
 // The workspace editor (workspaces.js), loaded beside the page with the token.
@@ -80,25 +84,35 @@ const api = (path, body) => fetch(path, {
 let state = { layouts: [], active: "" }
 const pageInfo = {} // cell → { url, title }
 const shown = new Set() // browser cells of the layout on screen
-const rtc = new Map() // cell → RTCPeerConnection
-const answers = new Map() // cell → resolve(answer SDP)
+const canvases = new Map() // cell → the canvas its frames are drawn on
 // A browser cell's live page is its favourite's: the same in every layout.
 const cellId = (l, c) => c.page
 
-// ── Ops to the helper: batched once a frame; hover moves fold to the latest ─
+// ── Ops to the helper ───────────────────────────────────────────────────────
+// Presses, releases, keys and wheel turns go at once; hover moves wait for the
+// next frame and fold to the latest. Posts go one after another, so a release
+// never overtakes its press.
 let queue = []
-let flushing = false
+let moving = false
+let sending = Promise.resolve()
+function send() {
+  const batch = queue
+  queue = []
+  if (!batch.length) return
+  for (const c of batch) if (c.seq) c.posted = Date.now()
+  sending = sending.then(() => api("/api/ops", batch)).catch(() => {})
+}
 function op(cmd) {
   const last = queue[queue.length - 1]
-  if (cmd.op === "mouse" && cmd.action === "move" && last && last.op === "mouse" && last.action === "move" && last.cell === cmd.cell) queue[queue.length - 1] = cmd
+  const isMove = cmd.op === "mouse" && cmd.action === "move"
+  if (isMove && last && last.op === "mouse" && last.action === "move" && last.cell === cmd.cell) queue[queue.length - 1] = cmd
   else queue.push(cmd)
-  if (!flushing) {
-    flushing = true
-    requestAnimationFrame(async () => {
-      const batch = queue
-      queue = []
-      flushing = false
-      if (batch.length) await api("/api/ops", batch).catch(() => {})
+  if (!isMove) return send()
+  if (!moving) {
+    moving = true
+    requestAnimationFrame(() => {
+      moving = false
+      send()
     })
   }
 }
@@ -157,11 +171,7 @@ function draw() {
   drawTabs()
   const l = state.layouts.find(x => x.name === state.active) || state.layouts[0]
   const grid = document.getElementById("grid")
-  // Close the old cells' streams first: a removed <img> keeps its stream open,
-  // and the browser allows six connections to one server.
-  for (const img of grid.querySelectorAll("img")) img.src = "data:,"
-  for (const [cell, pc] of rtc) { pc.close(); api("/api/rtc", { cell, kind: "close" }).catch(() => {}) }
-  rtc.clear()
+  canvases.clear()
   grid.replaceChildren()
   shown.clear()
   if (!l) return
@@ -241,19 +251,17 @@ function browserCell(l, cell) {
   const input = Object.assign(document.createElement("input"), { value: pageInfo[id]?.url || cell.url, spellcheck: false })
   input.onkeydown = e => { if (e.key === "Enter") { op({ op: "navigate", cell: id, url: input.value }); view.querySelector(".input").focus() } }
   const title = Object.assign(document.createElement("span"), { className: "title", textContent: pageInfo[id]?.title || "" })
-  const via = Object.assign(document.createElement("span"), { className: "via", textContent: "jpeg", title: "How this cell's picture arrives" })
-  bar.append(back, reload, input, title, via)
+  bar.append(back, reload, input, title)
 
   const view = document.createElement("div")
   view.className = "view"
-  const img = document.createElement("img")
-  img.alt = ""
-  img.src = `/stream?cell=${encodeURIComponent(id)}&t=${T}`
-  const video = Object.assign(document.createElement("video"), { autoplay: true, muted: true, playsInline: true })
+  const canvas = document.createElement("canvas")
+  canvases.set(id, canvas)
+  if (latest.has(id)) paint(id, latest.get(id))
   const layer = document.createElement("div")
   layer.className = "input"
   layer.tabIndex = 0
-  view.append(img, video, layer)
+  view.append(canvas, layer)
   el.append(bar, view)
   el._id = id; el._input = input; el._title = title
 
@@ -263,11 +271,24 @@ function browserCell(l, cell) {
   }
   const mods = e => (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0)
   const button = e => ["left", "middle", "right"][e.button] || "left"
-  layer.onpointerdown = e => { layer.focus(); layer.setPointerCapture(e.pointerId); op({ op: "mouse", cell: id, action: "down", button: button(e), clicks: e.detail || 1, mods: mods(e), ...at(e) }) }
+  const ripple = e => {
+    const dot = Object.assign(document.createElement("div"), { className: "ripple" })
+    const p = at(e)
+    dot.style.left = `${p.x}px`
+    dot.style.top = `${p.y}px`
+    view.append(dot)
+    dot.addEventListener("animationend", () => dot.remove())
+  }
+  layer.onpointerdown = e => {
+    layer.focus()
+    try { layer.setPointerCapture(e.pointerId) } catch {}
+    ripple(e)
+    op({ op: "mouse", cell: id, action: "down", button: button(e), clicks: e.detail || 1, mods: mods(e), ...at(e), ...stamp() })
+  }
   layer.onpointerup = e => op({ op: "mouse", cell: id, action: "up", button: button(e), clicks: e.detail || 1, mods: mods(e), ...at(e) })
   layer.onpointermove = e => op({ op: "mouse", cell: id, action: "move", button: e.buttons & 1 ? "left" : "none", mods: mods(e), ...at(e) })
   layer.oncontextmenu = e => e.preventDefault()
-  layer.onwheel = e => { e.preventDefault(); op({ op: "wheel", cell: id, dx: e.deltaX, dy: e.deltaY, ...at(e) }) }
+  layer.onwheel = e => { e.preventDefault(); op({ op: "wheel", cell: id, dx: e.deltaX, dy: e.deltaY, ...at(e), ...stamp() }) }
   layer.onkeydown = e => {
     if (e.altKey && /^[1-9]$/.test(e.key)) return // layout switching
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "v") return // the paste event sends it
@@ -290,56 +311,82 @@ function browserCell(l, cell) {
       const dpr = Math.min(2, window.devicePixelRatio || 1)
       const w = Math.round(r.width * dpr / 2) * 2
       const h = Math.round(r.height * dpr / 2) * 2
-      if (`${w}x${h}` === sized && rtc.has(id)) return
+      if (`${w}x${h}` === sized) return
       sized = `${w}x${h}`
       op({ op: "open", cell: id, url: cell.url, w, h, scale: dpr })
-      if (!rtc.has(id)) startRtc(id, view, img, video, via, w, h)
-      else api("/api/rtc", { cell: id, kind: "resize", w, h }).catch(() => {})
     }, 250)
   }).observe(view)
   return el
 }
 
-// ── WebRTC: the cell's video from the bridge; the JPEG stream until it plays ─
-const gathered = pc => new Promise(resolve => {
-  if (pc.iceGatheringState === "complete") return resolve()
-  pc.addEventListener("icegatheringstatechange", () => { if (pc.iceGatheringState === "complete") resolve() })
-  setTimeout(resolve, 2000)
-})
+// ── Pictures: every cell's frames on one stream ─────────────────────────────
+// GET /frames carries each cell's JPEGs as parts naming the cell. Each frame
+// is decoded off the main thread (createImageBitmap) and drawn on its cell's
+// canvas; a cell still decoding keeps only the newest frame waiting.
+const latest = new Map() // cell → its newest decoded frame
+const decoding = new Map() // cell → the frame waiting for the decode in flight (or null)
 
-async function startRtc(id, view, img, video, via, w, h) {
-  const pc = new RTCPeerConnection({ iceServers: [] })
-  rtc.set(id, pc)
-  pc.addTransceiver("video", { direction: "recvonly" })
-  pc.ontrack = e => { video.srcObject = e.streams[0] || new MediaStream([e.track]) }
-  video.onplaying = () => {
-    if (rtc.get(id) !== pc) return
-    view.classList.add("rtc")
-    via.textContent = "webrtc"
-    via.classList.add("rtc")
-    img.src = "data:," // the JPEG stream is no longer needed: free its connection
-  }
-  pc.onconnectionstatechange = () => {
-    if (["failed", "closed"].includes(pc.connectionState) && rtc.get(id) === pc) fallBack()
-  }
-  const fallBack = () => {
-    view.classList.remove("rtc")
-    via.textContent = "jpeg"
-    via.classList.remove("rtc")
-    if (img.src.startsWith("data:")) img.src = `/stream?cell=${encodeURIComponent(id)}&t=${T}`
-  }
-  try {
-    await pc.setLocalDescription(await pc.createOffer())
-    await gathered(pc)
-    const answer = new Promise((resolve, reject) => {
-      answers.set(id, resolve)
-      setTimeout(() => reject(new Error("no answer")), 8000)
+function paint(cell, bitmap) {
+  const canvas = canvases.get(cell)
+  if (!canvas) return
+  if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) Object.assign(canvas, { width: bitmap.width, height: bitmap.height })
+  canvas.getContext("2d").drawImage(bitmap, 0, 0)
+}
+
+const draws = [] // WORKSPACES_DEBUG: each frame drawn, with when Chrome took it
+function decode(cell, jpeg, captured) {
+  if (decoding.has(cell)) return void decoding.set(cell, { jpeg, captured })
+  decoding.set(cell, null)
+  createImageBitmap(new Blob([jpeg], { type: "image/jpeg" }))
+    .then(bitmap => {
+      latest.get(cell)?.close()
+      latest.set(cell, bitmap)
+      paint(cell, bitmap)
+      if (DEBUG) draws.push({ cell, captured, drawn: Date.now() })
     })
-    await api("/api/rtc", { cell: id, kind: "offer", sdp: pc.localDescription.sdp, w, h })
-    await pc.setRemoteDescription({ type: "answer", sdp: await answer })
-    setTimeout(() => { if (rtc.get(id) === pc && !view.classList.contains("rtc")) fallBack() }, 6000)
-  } catch {
-    fallBack()
+    .catch(() => {})
+    .finally(() => {
+      const next = decoding.get(cell)
+      decoding.delete(cell)
+      if (next) decode(cell, next.jpeg, next.captured)
+    })
+}
+
+const SEP = new Uint8Array([13, 10, 13, 10])
+function indexOf(buf, from) {
+  outer: for (let i = from; i <= buf.length - 4; i++) {
+    for (let j = 0; j < 4; j++) if (buf[i + j] !== SEP[j]) continue outer
+    return i
+  }
+  return -1
+}
+
+async function readFrames() {
+  for (;;) {
+    try {
+      const res = await fetch(`/frames?t=${T}`)
+      const reader = res.body.getReader()
+      let buf = new Uint8Array(0)
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) break
+        const next = new Uint8Array(buf.length + value.length)
+        next.set(buf)
+        next.set(value, buf.length)
+        buf = next
+        for (;;) {
+          const head = indexOf(buf, 0)
+          if (head < 0) break
+          const header = new TextDecoder().decode(buf.subarray(0, head))
+          const length = Number(/Content-Length:\s*(\d+)/i.exec(header)?.[1] ?? -1)
+          if (length < 0 || buf.length < head + 4 + length + 2) break
+          const cell = decodeURIComponent(/X-Cell:\s*(\S+)/i.exec(header)?.[1] ?? "")
+          decode(cell, buf.slice(head + 4, head + 4 + length), Number(/X-Captured:\s*([\d.]+)/i.exec(header)?.[1] ?? 0))
+          buf = buf.slice(head + 4 + length + 2)
+        }
+      }
+    } catch {}
+    await new Promise(r => setTimeout(r, 1000)) // the helper went away: try again
   }
 }
 
@@ -350,8 +397,6 @@ es.onmessage = ev => {
   if (m.t === "state") return load()
   if (m.t === "show") return showEditor(m.view)
   if (m.t === "library") return editorReady.then(() => window.WORKSPACES_EDITOR.refresh())
-  if (m.t === "answer") { answers.get(m.cell)?.(m.sdp); answers.delete(m.cell); return }
-  if (m.t === "rtc-error") return
   pageInfo[m.cell] = { ...(pageInfo[m.cell] || {}), ...(m.t === "nav" ? { url: m.url } : { title: m.title }) }
   for (const el of document.querySelectorAll(".cell")) {
     if (el._id !== m.cell) continue
@@ -370,7 +415,95 @@ async function load() {
   for (const p of state.pages || []) pageInfo[p.cell] = { url: p.url, title: p.title }
   draw()
 }
-load().then(() => { if (START_VIEW) showEditor(START_VIEW) })
+load().then(() => {
+  readFrames()
+  if (START_VIEW) showEditor(START_VIEW)
+})
+
+// ── Measuring (WORKSPACES_DEBUG=1 only) ─────────────────────────────────────
+// With the probe page (debug/probe.html) in a cell, each trial clicks or
+// scrolls it through the cell's own handlers and waits for the probe's square
+// to change colour on the cell's canvas: the time from the input to the frame
+// on screen, split by the helper's trace into where it went (batch: held in
+// the page; post: to the helper; queue: behind other ops; cdp: Chrome takes
+// the input; paint: the page paints and Chrome captures; cast: the frame
+// reaches the helper; decode: the page decodes and draws it; show: on screen).
+if (DEBUG) window.WORKSPACES_DEBUG = (() => {
+  const sampler = Object.assign(document.createElement("canvas"), { width: 1, height: 1 }).getContext("2d", { willReadFrequently: true })
+  const cellEl = page => [...document.querySelectorAll(".cell")].find(el => el._id === page)
+  const colourOf = (media, x, y) => {
+    const w = media.width, h = media.height
+    const r = media.getBoundingClientRect()
+    if (!w || !r.width) return null
+    sampler.drawImage(media, (x / r.width) * w, (y / r.height) * h, 1, 1, 0, 0, 1, 1)
+    const [red, , blue] = sampler.getImageData(0, 0, 1, 1).data
+    return red > blue ? "red" : "blue"
+  }
+  const nextFrame = () => new Promise(resolve => requestAnimationFrame(now => resolve(performance.timeOrigin + now)))
+  async function trial(page, kind) {
+    const el = cellEl(page)
+    const view = el.querySelector(".view")
+    const media = view.querySelector("canvas")
+    const layer = view.querySelector(".input")
+    const before = colourOf(media, 30, 30)
+    const r = layer.getBoundingClientRect()
+    const at = { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, pointerId: 1, button: 0, buttons: 1 }
+    const seq = seqN + 1
+    if (kind === "click") {
+      layer.dispatchEvent(new PointerEvent("pointerdown", at))
+      layer.dispatchEvent(new PointerEvent("pointerup", { ...at, buttons: 0 }))
+    } else layer.dispatchEvent(new WheelEvent("wheel", { ...at, deltaY: 120, cancelable: true }))
+    const until = Date.now() + 3000
+    while (Date.now() < until) {
+      const shown = await nextFrame()
+      if (colourOf(media, 30, 30) !== before) return { seq, kind, shown }
+    }
+    return { seq, kind, shown: null }
+  }
+  const pct = (xs, p) => { const s = xs.filter(x => Number.isFinite(x)).sort((a, b) => a - b); return s.length ? Math.round(s[Math.min(s.length - 1, Math.floor(p * s.length))]) : null }
+  async function run({ page = "probe", clicks = 20, scrolls = 20, gap = 350 } = {}) {
+    const trials = []
+    for (const kind of [...Array(clicks).fill("click"), ...Array(scrolls).fill("scroll")]) {
+      trials.push(await trial(page, kind))
+      await new Promise(r => setTimeout(r, gap))
+    }
+    const t = { ...(await api("/api/debug")), draws }
+    const rows = trials.map(x => {
+      const o = t.ops.find(op => op.seq === x.seq)
+      if (!o || !x.shown) return { ...x, lost: true }
+      const frame = t.frames.find(f => f.cell === page && f.captured >= o.done - 1)
+      const draw = frame && t.draws.find(d => d.cell === page && d.captured === frame.captured)
+      return {
+        kind: x.kind, total: x.shown - o.input,
+        batch: o.posted - o.input, post: o.arrived - o.posted, queue: o.sent - o.arrived, cdp: o.done - o.sent,
+        paint: frame ? frame.captured - o.done : NaN, cast: frame ? frame.received - frame.captured : NaN,
+        decode: draw ? draw.drawn - frame.received : NaN, show: draw ? x.shown - draw.drawn : NaN,
+      }
+    })
+    const report = {}
+    for (const kind of ["click", "scroll"]) {
+      const rs = rows.filter(r => r.kind === kind && !r.lost)
+      report[kind] = { n: rs.length, lost: rows.filter(r => r.kind === kind && r.lost).length }
+      for (const k of ["total", "batch", "post", "queue", "cdp", "paint", "cast", "decode", "show"]) report[kind][k] = { p50: pct(rs.map(r => r[k]), 0.5), p95: pct(rs.map(r => r[k]), 0.95) }
+    }
+    return report
+  }
+  /** Scrolls the page for `ms` (for measuring CPU while it moves). */
+  async function storm(page = "probe", ms = 10000) {
+    const layer = cellEl(page).querySelector(".input")
+    const r = layer.getBoundingClientRect()
+    const end = Date.now() + ms
+    let dir = 1, n = 0
+    while (Date.now() < end) {
+      if (++n % 40 === 0) dir = -dir
+      layer.dispatchEvent(new WheelEvent("wheel", { clientX: r.left + 50, clientY: r.top + 50, deltaY: 60 * dir, bubbles: true, cancelable: true }))
+      await new Promise(res => requestAnimationFrame(res))
+    }
+  }
+  /** Frames drawn per second in a cell over the last `ms`. */
+  const fps = (page = "probe", ms = 5000) => Math.round((draws.filter(d => d.cell === page && d.drawn > Date.now() - ms).length * 1000) / ms)
+  return { trial, run, storm, fps }
+})()
 </script>
 </body>
 </html>
