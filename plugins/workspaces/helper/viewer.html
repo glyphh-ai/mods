@@ -5,46 +5,102 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Workspaces</title>
 <style>
+  /* Colours: the Claude desktop app's, sampled from its Browser pane (dark).
+     Every rule below uses these tokens; none names a colour itself. The
+     workspace editor (workspaces.css) maps the Glyphh app's tokens onto them. */
   :root {
-    --bg: #111214; --panel: #17181b; --line: #2a2c31; --text: #e7e7ea; --dim: #8b8d94;
-    --accent: #a78bfa; --gutter: 6px;
+    color-scheme: dark;
+    --c-outer: #151515;     /* window, behind the panes */
+    --c-bg: #191918;        /* pane and page */
+    --c-field: #252424;     /* raised fields, inputs */
+    --c-line: #30302f;      /* borders */
+    --c-line-2: #3b3a3a;    /* stronger borders */
+    --c-text: #edede9;
+    --c-text-2: #bbbaaf;    /* secondary, muted */
+    --c-btn: #fafafa;       /* primary button */
+    --c-btn-text: #191918;  /* text on the primary button */
+    --c-btn-2: #4a4a49;     /* secondary button */
+    --c-accent: #d97757;    /* Claude's orange: focus and selection, sparingly */
+    --c-danger: #e5675c;
+    --c-canvas: #ffffff;    /* behind a page that has not drawn yet */
+    --c-hover: color-mix(in srgb, var(--c-text) 8%, transparent);
+    --c-ripple: color-mix(in srgb, var(--c-accent) 45%, transparent);
+    --c-overlay: color-mix(in srgb, var(--c-outer) 70%, transparent);
+    --c-shadow: color-mix(in srgb, var(--c-outer) 80%, transparent);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --gutter: 6px;
+  }
+  /* Light: PROVISIONAL values, until samples from Claude's light pane replace them. */
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --c-outer: #f0eee6;
+      --c-bg: #faf9f5;
+      --c-field: #ffffff;
+      --c-line: #e5e3da;
+      --c-line-2: #d6d3c8;
+      --c-text: #141413;
+      --c-text-2: #6b6a63;
+      --c-btn: #141413;
+      --c-btn-text: #faf9f5;
+      --c-btn-2: #e8e6dc;
+      --c-danger: #c4463b;
+    }
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
-    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; overflow: hidden; }
-  #top { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); height: 36px; }
-  #top button { background: transparent; color: var(--dim); border: 1px solid var(--line); border-radius: 6px;
-    padding: 3px 10px; font: inherit; cursor: pointer; }
-  #top button.on { color: var(--text); border-color: var(--accent); background: #a78bfa1f; }
-  #top .hint { margin-left: auto; color: var(--dim); font-size: 12px; }
-  #grid { position: absolute; inset: 36px 0 0 0; display: grid; }
+  html, body { margin: 0; height: 100%; background: var(--c-outer); color: var(--c-text);
+    font: 13px/1.4 var(--font); overflow: hidden; }
+  button, input { font: inherit; }
+  #top { display: flex; align-items: center; gap: 4px; padding: 0 8px; border-bottom: 1px solid var(--c-line); height: 36px; background: var(--c-outer); }
+  #top button { background: none; color: var(--c-text-2); border: none; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  #top button:hover { background: var(--c-hover); color: var(--c-text); }
+  #top button.on { background: var(--c-field); color: var(--c-text); }
+  #top .hint { margin-left: auto; color: var(--c-text-2); font-size: 12px; }
+  #grid { position: absolute; inset: 36px 0 0 0; display: grid; background: var(--c-outer); }
   .gutter { background: transparent; position: relative; z-index: 2; }
-  .gutter::after { content: ""; position: absolute; background: var(--line); }
+  .gutter::after { content: ""; position: absolute; background: var(--c-line); }
   .gutter.v { cursor: col-resize; } .gutter.v::after { inset: 0 2px; }
   .gutter.h { cursor: row-resize; } .gutter.h::after { inset: 2px 0; }
-  .gutter:hover::after, .gutter.drag::after { background: var(--accent); }
+  .gutter:hover::after, .gutter.drag::after { background: var(--c-accent); }
   .cell { position: relative; z-index: 3; display: flex; flex-direction: column; min-width: 0; min-height: 0;
-    background: var(--panel); overflow: hidden; }
-  .bar { display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--line); flex: none; }
-  .bar button { background: none; border: none; color: var(--dim); cursor: pointer; font: inherit; padding: 2px 5px; border-radius: 4px; }
-  .bar button:hover { color: var(--text); background: #ffffff10; }
-  .bar input { flex: 1; min-width: 0; background: #0c0d0f; color: var(--text); border: 1px solid var(--line);
-    border-radius: 5px; padding: 3px 7px; font: 12px ui-monospace, Menlo, monospace; }
-  .bar .title { color: var(--dim); font-size: 12px; max-width: 30%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .view { position: relative; flex: 1; min-height: 0; background: #fff; }
+    background: var(--c-bg); overflow: hidden; }
+  .cell.max { position: absolute; inset: 0; z-index: 5; }
+
+  /* A cell's header and its browser bar: the Glyphh app's web panel
+     (.ws-rail-slot-header and .ws-app-chrome at v1.6.2), in Claude's colours. */
+  .slot-head { height: 38px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--c-line); display: flex;
+    align-items: center; gap: 8px; flex-shrink: 0; background: var(--c-bg); }
+  .slot-head .icon { width: 14px; height: 14px; color: var(--c-text-2); flex-shrink: 0; }
+  .slot-head .title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-size: 13px; font-weight: 500; color: var(--c-text); }
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+    flex-shrink: 0; border: none; border-radius: 6px; background: none; color: var(--c-text-2); cursor: pointer; padding: 0;
+    transition: background 0.1s, color 0.1s; }
+  .icon-btn svg { width: 16px; height: 16px; display: block; }
+  .icon-btn:hover { background: var(--c-hover); color: var(--c-text); }
+  .icon-btn.active { color: var(--c-text); }
+  .icon-btn[disabled] { opacity: 0.35; cursor: default; }
+  .icon-btn[disabled]:hover { background: none; color: var(--c-text-2); }
+  .app-chrome { flex-shrink: 0; display: flex; align-items: center; gap: 4px; height: 34px; padding: 0 6px;
+    background: var(--c-bg); border-bottom: 1px solid var(--c-line); }
+  .cell.no-chrome .app-chrome { display: none; }
+  .urlbar { flex: 1 1 auto; min-width: 0; height: 24px; padding: 0 10px; border: 1px solid var(--c-line); border-radius: 7px;
+    background: var(--c-field); color: var(--c-text); font-size: 12px; outline: none; }
+  .urlbar:focus { border-color: var(--c-accent); }
+
+  .view { position: relative; flex: 1; min-height: 0; background: var(--c-canvas); }
   /* A popup the page opened, shown over its cell until closed. */
-  .popup { position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; background: var(--panel);
-    border: 1px solid var(--accent); }
-  .popup .bar .title { max-width: none; flex: 1; }
+  .popup { position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; background: var(--c-bg);
+    border: 1px solid var(--c-line-2); }
   .view canvas { position: absolute; inset: 0; width: 100%; height: 100%; user-select: none; }
   /* A click answers at once, before the page's own picture does. */
   .ripple { position: absolute; width: 28px; height: 28px; margin: -14px 0 0 -14px; border-radius: 50%;
-    background: rgba(167, 139, 250, 0.45); pointer-events: none; animation: ripple 0.35s ease-out forwards; }
+    background: var(--c-ripple); pointer-events: none; animation: ripple 0.35s ease-out forwards; }
   @keyframes ripple { from { transform: scale(0.3); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
   .view .input { position: absolute; inset: 0; outline: none; cursor: default; }
-  .view .input:focus { box-shadow: inset 0 0 0 2px var(--accent); }
-  .native { flex: 1; display: grid; place-items: center; color: var(--dim); text-align: center; padding: 12px; }
-  .native b { color: var(--text); }
+  .view .input:focus { box-shadow: inset 0 0 0 1px var(--c-accent); }
+  .native { flex: 1; display: grid; place-items: center; color: var(--c-text-2); text-align: center; padding: 12px; font-size: 12px; }
+  .native b { color: var(--c-text); font-weight: 500; font-size: 13px; }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -234,8 +290,55 @@ function nativeCell(cell) {
   el.className = "cell"
   const panes = { files: ["Files", "/files"], changes: ["Changes", "/diff"], terminal: ["Terminal", "/term"] }
   const [label, command] = panes[cell.panel] || [cell.panel, ""]
-  el.innerHTML = `<div class="native"><div><b>${label}</b><br>in the app's own ${label} pane: ${command}</div></div>`
+  const body = Object.assign(document.createElement("div"), { className: "native" })
+  body.innerHTML = `<div><b></b><br>in the app's own pane: <span></span></div>`
+  body.querySelector("b").textContent = label
+  body.querySelector("span").textContent = command
+  el.append(slotHead(cell.panel in panes ? cell.panel : "page", label, maximizeButton(el)), body)
   return el
+}
+
+// ── Icons: 16px, 1.5px strokes, round ends, in the text's colour ────────────
+const svg = body => `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`
+const ICONS = {
+  page: svg('<circle cx="8" cy="8" r="6"/><path d="M2 8h12"/><path d="M8 2c1.8 1.7 2.6 3.7 2.6 6S9.8 12.3 8 14c-1.8-1.7-2.6-3.7-2.6-6S6.2 3.7 8 2z"/>'),
+  back: svg('<path d="M10 3.5 5.5 8l4.5 4.5"/>'),
+  forward: svg('<path d="M6 3.5 10.5 8 6 12.5"/>'),
+  reload: svg('<path d="M13 8a5 5 0 1 1-1.5-3.6"/><path d="M13 2.5v3h-3"/>'),
+  address: svg('<rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M2 6.5h12"/>'),
+  maximize: svg('<path d="M10 2.5h3.5V6"/><path d="M6 13.5H2.5V10"/><path d="M13.5 2.5 9.5 6.5"/><path d="M2.5 13.5l4-4"/>'),
+  restore: svg('<path d="M3 9.5h3.5V13"/><path d="M13 6.5H9.5V3"/><path d="M9.5 6.5l4-4"/><path d="M2.5 13.5l4-4"/>'),
+  close: svg('<path d="M4 4l8 8"/><path d="M12 4l-8 8"/>'),
+  files: svg('<path d="M2 4.5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z"/>'),
+  changes: svg('<path d="M8 2.5v11"/><path d="M5 5 2.5 7.5 5 10"/><path d="M11 6l2.5 2.5L11 11"/>'),
+  terminal: svg('<path d="M3 4.5 6.5 8 3 11.5"/><path d="M8.5 12H13"/>'),
+}
+
+function iconButton(icon, title, onclick) {
+  const b = Object.assign(document.createElement("button"), { type: "button", className: "icon-btn", title, onclick })
+  b.innerHTML = ICONS[icon]
+  return b
+}
+
+/** A cell's header, as the Glyphh app's web panel had it: its icon, its
+ *  title, then its buttons. */
+function slotHead(icon, title, ...buttons) {
+  const head = Object.assign(document.createElement("div"), { className: "slot-head" })
+  const mark = document.createElement("span")
+  mark.className = "icon"
+  mark.innerHTML = ICONS[icon]
+  head.append(mark, Object.assign(document.createElement("span"), { className: "title", textContent: title }), ...buttons)
+  return head
+}
+
+/** The maximize button: the cell over the whole grid, and back. */
+function maximizeButton(el) {
+  const b = iconButton("maximize", "Maximize", () => {
+    const on = el.classList.toggle("max")
+    b.innerHTML = ICONS[on ? "restore" : "maximize"]
+    b.title = on ? "Restore" : "Maximize"
+  })
+  return b
 }
 
 // ── A live browser cell ─────────────────────────────────────────────────────
@@ -299,11 +402,8 @@ function showPopup(cellId, popupId, url) {
   el.querySelector(".popup")?.remove()
   const box = Object.assign(document.createElement("div"), { className: "popup" })
   box._id = popupId
-  const bar = Object.assign(document.createElement("div"), { className: "bar" })
-  const title = Object.assign(document.createElement("span"), { className: "title", textContent: url || "Popup" })
-  const close = Object.assign(document.createElement("button"), { textContent: "\u2715", title: "Close this popup", onclick: () => { op({ op: "close", cell: popupId }); box.remove() } })
-  bar.append(title, close)
-  box.append(bar, liveView(popupId))
+  const close = iconButton("close", "Close this popup", () => { op({ op: "close", cell: popupId }); box.remove() })
+  box.append(slotHead("page", url || "Popup", close), liveView(popupId))
   el.append(box)
 }
 
@@ -312,17 +412,22 @@ function browserCell(l, cell) {
   shown.add(id)
   const el = document.createElement("div")
   el.className = "cell"
-  const bar = document.createElement("div")
-  bar.className = "bar"
-  const back = Object.assign(document.createElement("button"), { textContent: "◀", title: "Back", onclick: () => op({ op: "back", cell: id }) })
-  const reload = Object.assign(document.createElement("button"), { textContent: "⟳", title: "Reload", onclick: () => op({ op: "reload", cell: id }) })
-  const input = Object.assign(document.createElement("input"), { value: pageInfo[id]?.url || cell.url, spellcheck: false })
+  const toggle = iconButton("address", "Address bar", () => toggle.classList.toggle("active", !el.classList.toggle("no-chrome")))
+  toggle.classList.add("active")
+  const head = slotHead("page", cell.title || pageInfo[id]?.title || "", toggle, maximizeButton(el))
+  const chrome = Object.assign(document.createElement("div"), { className: "app-chrome" })
+  const input = Object.assign(document.createElement("input"), { className: "urlbar", value: pageInfo[id]?.url || cell.url, spellcheck: false, placeholder: "Enter a URL or search" })
+  input.onfocus = () => input.select()
   input.onkeydown = e => { if (e.key === "Enter") { op({ op: "navigate", cell: id, url: input.value }); view.querySelector(".input").focus() } }
-  const title = Object.assign(document.createElement("span"), { className: "title", textContent: pageInfo[id]?.title || "" })
-  bar.append(back, reload, input, title)
+  chrome.append(
+    iconButton("back", "Back", () => op({ op: "back", cell: id })),
+    iconButton("forward", "Forward", () => op({ op: "forward", cell: id })),
+    iconButton("reload", "Reload", () => op({ op: "reload", cell: id })),
+    input,
+  )
   const view = liveView(id)
-  el.append(bar, view)
-  el._id = id; el._input = input; el._title = title
+  el.append(head, chrome, view)
+  el._id = id; el._input = input; el._title = head.querySelector(".title")
 
   // Open (or bring back) the page at this cell's size; follow every resize.
   // Open (or bring back) the page at this cell's size; follow a real resize
@@ -430,7 +535,7 @@ es.onmessage = ev => {
   for (const el of document.querySelectorAll(".cell")) {
     if (el._id !== m.cell) continue
     if (m.t === "nav" && document.activeElement !== el._input) el._input.value = m.url
-    if (m.t === "title") el._title.textContent = m.title
+    if (m.t === "title" && m.title) el._title.textContent = m.title
   }
 }
 

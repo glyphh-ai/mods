@@ -1,52 +1,36 @@
-/* workspaces.css — the layout page's workspace editor. Its rules and colour
-   tokens are the Glyphh app's own (styles.css at v1.6.2, the modern-dark
-   theme), copied so the editor looks as the app's grid builder did. The
-   last block places the editor in the layout page. */
+/* workspaces.css — the layout page's workspace editor. Its rules are the
+   Glyphh app's own (styles.css at v1.6.2), copied so the editor is laid out
+   as the app's grid builder was. Its colours are the Claude desktop app's:
+   the app's tokens below are mapped onto the layout page's (viewer.html,
+   dark and light), and no rule names a colour itself. The last block places
+   the editor in the layout page. */
 
 .ws-view, .confirm-overlay, .cell-panel-picker {
-  color-scheme: dark;
-  --mark-invert: 1;
-  --bg:          oklch(0.248 0 0);
-  --bg-raised:   oklch(0.286 0 0);
-  --surface:     oklch(0.248 0 0);
-  --surface-2:   oklch(0.286 0 0);
-  --surface-3:   oklch(0.209 0 0);
-  --sidebar:     oklch(0.187 0 0);
-  --sidebar-border: oklch(0.187 0 0);
-  --border:      oklch(0.309 0 0);
-  --border-2:    oklch(0.356 0 0);
-  --border-3:    oklch(0.56 0 0);
-  --text:        oklch(0.964 0 0);
-  --text-bright: oklch(1 0 0);
-  --text-2:      oklch(0.754 0 0);
-  --text-3:      oklch(0.754 0 0);
-  --text-muted:  oklch(0.65 0 0);
-  --text-faint:  oklch(0.65 0 0);
-  --white:       oklch(1 0 0);
-  --hover:       oklch(0.309 0 0);
-  --active-bg:   rgba(255, 255, 255, 0.08);
-  --accent:      oklch(0.928 0 0);
-  --accent-fg:   oklch(0.209 0 0);
-  --accent-hover:oklch(0.86 0 0);
-  --accent-text: oklch(0.928 0 0);
-  --accent-dark: oklch(0.75 0 0);
-  --accent-bg:   oklch(0.309 0 0);
-  --danger:      #ff7a70;
-  --danger-soft:  #ff958d;
-  --danger-bg:   #2a1515;
-  --warning:     #f0a030;
-  --success:     #28c840;
-  --blue:        #4A9EFF;
-  --purple:      #af5fff;
-  --overlay-bg:  rgba(0, 0, 0, 0.6);
-  --shadow:      rgba(0, 0, 0, 0.4);
-  --selection:   rgba(255, 255, 255, 0.22);
-  --scrollbar:   #333;
-  --scrollbar-hover: #555;
-  --toast-bg:    #1a1a2e;
-  --code-inline: #e0a0ff;
-  --input-bg:    var(--surface);
-  --card-bg:     var(--surface-3);
+  --bg: var(--c-bg);
+  --surface: var(--c-bg);
+  --surface-2: var(--c-field);
+  --surface-3: var(--c-outer);
+  --border: var(--c-line);
+  --border-2: var(--c-line-2);
+  --border-3: var(--c-line-2);
+  --text: var(--c-text);
+  --text-bright: var(--c-text);
+  --text-2: var(--c-text-2);
+  --text-3: var(--c-text-2);
+  --text-muted: var(--c-text-2);
+  --text-faint: var(--c-text-2);
+  --white: var(--c-text);
+  --hover: var(--c-hover);
+  --accent: var(--c-btn);
+  --accent-fg: var(--c-btn-text);
+  --accent-hover: var(--c-btn);
+  --grad-accent: var(--c-btn);
+  --danger: var(--c-danger);
+  --danger-soft: var(--c-danger);
+  --danger-bg: color-mix(in srgb, var(--c-danger) 14%, transparent);
+  --overlay-bg: var(--c-overlay);
+  --font-sans: var(--font);
+  --font-mono: var(--font);
 }
 
 }
@@ -72,7 +56,7 @@
   border-radius: 12px;
   padding: 0; /* head/body/foot own their padding */
   overflow: hidden;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 18px 50px var(--c-shadow);
   /* Half the chat content width (composer maxes at 780px) — one
      consistent modal width everywhere. */
   width: min(420px, 86vw);
@@ -242,16 +226,16 @@
   user-select: none;
 }
 .grid-cell:hover {
-  border-color: rgba(255, 255, 255, 0.55);
+  border-color: var(--c-text-2);
 }
 .grid-cell.selected {
-  border-color: #fff;
-  box-shadow: 0 0 0 1px #fff;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 1px var(--c-accent);
 }
 .grid-cell.assigned {
   color: var(--text);
   background: color-mix(in srgb, var(--text) 5%, transparent);
-  border-color: #fff;
+  border-color: var(--c-text);
 }
 .grid-cell { user-select: none; }
 .grid-cell { position: relative; }
@@ -438,9 +422,10 @@ select.settings-input {
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23888' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+  background-image: linear-gradient(45deg, transparent 50%, var(--c-text-2) 50%), linear-gradient(135deg, var(--c-text-2) 50%, transparent 50%);
   background-repeat: no-repeat;
-  background-position: right 12px center;
+  background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%;
+  background-size: 5px 5px;
   padding-right: 32px;
 }
 .confirm-body { padding: 14px 18px; }
@@ -459,12 +444,8 @@ select.settings-input {
 #layout-editor.crud-inline-form { max-width: none !important; }
 
 /* ── Placed in the layout page ─────────────────────────────────────────── */
+.ws-view .settings-input:focus, .ws-view .cell-panel-search:focus, .cell-panel-search:focus { border-color: var(--c-accent); }
 .ws-view {
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  --font-mono: 'SF Mono', ui-monospace, Menlo, monospace;
-  --bg-2: var(--surface-2);
-  --grad-accent: var(--accent);
-  --accent-ink: var(--accent-fg);
   position: absolute; inset: 36px 0 0 0; z-index: 10; overflow: auto;
   padding: 20px 28px 40px; background: var(--bg); color: var(--text);
   font: 13px/1.45 var(--font-sans);
