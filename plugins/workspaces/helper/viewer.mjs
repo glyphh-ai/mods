@@ -115,6 +115,11 @@ const chromeReady = startChrome({
     for (const res of frameStreams) writeFrame(res, page.cell, bytes, captured)
   },
   onNav: page => emit({ t: "nav", cell: page.cell, url: page.url }),
+  onPopup: (opener, page) => emit({ t: "popup", cell: opener.cell, popup: page.cell, url: page.url }),
+  onPopupClosed: page => {
+    last.delete(page.cell)
+    emit({ t: "popup-closed", cell: page.parent, popup: page.cell })
+  },
   onTitle: page => emit({ t: "title", cell: page.cell, title: page.title }),
   onExit: () => shutdown(1),
 })
@@ -235,11 +240,13 @@ const server = createServer(async (req, res) => {
     } else if (route === "POST /api/ops") {
       const arrived = Date.now()
       const body = await readBody(req)
-      // One op after another, across requests too: a release never overtakes its press.
+      // One op after another, across requests too: a release never overtakes its
+      // press. An op Chrome never answers (a click that set off a native app's
+      // link holds its release) holds the rest for 2 s at most.
       opsDone = opsDone.then(async () => {
         for (const cmd of [].concat(body ?? [])) {
           const sent = Date.now()
-          await chrome.op(cmd).catch(() => {})
+          await Promise.race([chrome.op(cmd).catch(() => {}), new Promise(r => setTimeout(r, 2000))])
           if (DEBUG && cmd.seq) keep(trace.ops, { seq: cmd.seq, op: cmd.op, action: cmd.action, cell: cmd.cell, input: cmd.t, posted: cmd.posted, arrived, sent, done: Date.now() })
         }
       })

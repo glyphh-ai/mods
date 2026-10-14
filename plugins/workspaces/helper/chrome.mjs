@@ -1,7 +1,8 @@
 // chrome.mjs — the headless Chrome the layout page drives: one page per
 // browser cell, each screencasting its JPEG frames, input replayed over CDP.
 //
-// startChrome({ quality, onFrame, onNav, onTitle, onExit }) → { open, op, text, shutdown, pages }
+// startChrome({ quality, onFrame, onNav, onTitle, onPopup, onPopupClosed, onExit })
+//   → { open, op, text, shutdown, pages }
 //   onFrame  (page, bytes, { captured }) for every frame, already acknowledged;
 //            `captured` is when Chrome took it, in ms since the epoch
 //
@@ -17,6 +18,7 @@ import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { addressOf, keyCalls, mouseCall, nulFramer } from "./input.mjs"
+import { NATIVE_BINDING, NATIVE_LINK_SCRIPT, cleanUserAgent, nativeDecision, popupDecision, userAgentMetadata } from "./popups.mjs"
 
 const CHROME = process.env.WORKSPACES_CHROME
   || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -33,7 +35,13 @@ function isHeld(dir) {
   }
 }
 
-export async function startChrome({ quality = 80, onFrame, onNav, onTitle, onExit }) {
+/** The isolated world the native-link catcher runs in. */
+const WORLD = "workspaces"
+
+/** The page a cell's popup is shown as, over the cell. */
+export const popupCell = cell => `${cell}#popup`
+
+export async function startChrome({ quality = 80, onFrame, onNav, onTitle, onPopup, onPopupClosed, onExit }) {
   const run = mkdtempSync(join(tmpdir(), "glyphh-workspaces-"))
   mkdirSync(LASTING, { recursive: true })
   const profile = isHeld(LASTING) ? join(run, "profile") : LASTING
@@ -63,6 +71,7 @@ export async function startChrome({ quality = 80, onFrame, onNav, onTitle, onExi
 
   fromChrome.setEncoding("utf8")
   fromChrome.on("data", nulFramer(onMessage))
+  await send("Target.setDiscoverTargets", { discover: true }) // popups: Target.targetCreated
 
   function onMessage(msg) {
     if (msg.id) {
@@ -71,8 +80,21 @@ export async function startChrome({ quality = 80, onFrame, onNav, onTitle, onExi
       if (p) msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result)
       return
     }
+    if (!msg.sessionId) return onBrowser(msg)
     const page = pages.get(sessions.get(msg.sessionId))
     if (!page) return
+    if (msg.method === "Page.windowOpen") {
+      page.opening = msg.params.url // the popup's address: its target arrives next, without it
+      return
+    }
+    if (msg.method === "Runtime.bindingCalled" && msg.params.name === NATIVE_BINDING) {
+      void native(page, String(msg.params.payload), false).catch(() => {})
+      return
+    }
+    if (msg.method === "Page.frameRequestedNavigation" && msg.params.frameId === page.target) {
+      void native(page, msg.params.url, true).catch(() => {})
+      return
+    }
     if (msg.method === "Page.screencastFrame") {
       send("Page.screencastFrameAck", { sessionId: msg.params.sessionId }, page.session).catch(() => {})
       if (page.live) {
@@ -89,10 +111,103 @@ export async function startChrome({ quality = 80, onFrame, onNav, onTitle, onExi
     }
   }
 
+  // ── Popups ───────────────────────────────────────────────────────────────
+  // A page's popup is a new target with the page as its opener. "Keep in
+  // panel" pages load it in themselves (popups.mjs decides); the others show
+  // it as a page of its own over the cell until it, or the person, closes it.
+
+  function onBrowser(msg) {
+    if (msg.method === "Target.targetCreated") {
+      const info = msg.params.targetInfo
+      if (info.type !== "page" || !info.openerId) return
+      const opener = [...pages.values()].find(p => p.target === info.openerId)
+      if (opener) void popup(opener, info).catch(() => {})
+    } else if (msg.method === "Target.targetDestroyed") {
+      const gone = [...pages.values()].find(p => p.target === msg.params.targetId && p.parent)
+      if (gone) forget(gone)
+    }
+  }
+
+  async function popup(opener, info) {
+    const url = info.url || opener.opening || ""
+    opener.opening = undefined
+    const decision = popupDecision({ url, keepInPanel: opener.keep, parentUrl: opener.url })
+    if (decision.action !== "own") {
+      await send("Target.closeTarget", { targetId: info.targetId }).catch(() => {})
+      if (decision.action === "same") await send("Page.navigate", { url: decision.url }, opener.session)
+      return
+    }
+    const cell = popupCell(opener.cell)
+    const was = pages.get(cell)
+    if (was) await send("Target.closeTarget", { targetId: was.target }).catch(() => {})
+    const { sessionId } = await send("Target.attachToTarget", { targetId: info.targetId, flatten: true })
+    const page = { cell, parent: opener.cell, target: info.targetId, session: sessionId, w: 0, h: 0, scale: 1, gen: 0, live: true, keep: false, url, title: "" }
+    pages.set(cell, page)
+    sessions.set(sessionId, cell)
+    await prepare(page)
+    await size(page, opener.w, opener.h, opener.scale)
+    onPopup?.(opener, page)
+  }
+
+  /** A native app's address the page went for. A link the page's catcher
+   *  sent never reached Chrome; the page itself going there did, and Chrome's
+   *  prompt for the app holds its input for good, so the page is made anew. */
+  async function native(page, url, reachedChrome) {
+    const decision = nativeDecision({ url, keepInPanel: page.keep, parentUrl: page.url })
+    if (!decision) return
+    if (decision.action === "system") spawn("open", [decision.url], { stdio: "ignore", detached: true }).unref()
+    const next = decision.action === "same" ? decision.url : page.url
+    if (reachedChrome) await renew(page, next)
+    else if (decision.action === "same") await send("Page.navigate", { url: next }, page.session)
+  }
+
+  /** The page's target replaced by a fresh one at `url`, same cell and size. */
+  async function renew(page, url) {
+    const old = { target: page.target, session: page.session }
+    const { targetId } = await send("Target.createTarget", { url: "about:blank", newWindow: true, background: false })
+    const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true })
+    sessions.delete(old.session)
+    Object.assign(page, { target: targetId, session: sessionId, url })
+    sessions.set(sessionId, page.cell)
+    await prepare(page)
+    await size(page, page.w, page.h, page.scale)
+    await send("Page.navigate", { url }, sessionId)
+    await send("Target.closeTarget", { targetId: old.target }).catch(() => {})
+  }
+
+  function forget(page) {
+    pages.delete(page.cell)
+    sessions.delete(page.session)
+    onPopupClosed?.(page)
+  }
+
+  // ── A clean user agent: no "Headless", in the header and the client hints ──
   let agent
   const userAgent = async () => {
-    agent ??= (await send("Browser.getVersion")).userAgent.replace("HeadlessChrome", "Chrome")
+    if (!agent) {
+      const version = await send("Browser.getVersion")
+      const ua = cleanUserAgent(version.userAgent)
+      agent = { userAgent: ua, userAgentMetadata: userAgentMetadata(ua, { arm: process.arch === "arm64" }) }
+    }
     return agent
+  }
+
+  /** A page set up as a cell needs it: events, focus, lifecycle, user agent. */
+  async function prepare(page) {
+    const s = page.session
+    await send("Page.enable", {}, s)
+    await send("Emulation.setFocusEmulationEnabled", { enabled: true }, s)
+    await send("Page.setWebLifecycleState", { state: "active" }, s).catch(() => {})
+    const ua = await userAgent()
+    await send("Network.setUserAgentOverride", ua, s)
+    await send("Emulation.setUserAgentOverride", ua, s)
+    // Links to native apps come to us (popups.mjs), in this page and its next,
+    // from a world of our own: the page's scripts cannot call the binding.
+    await send("Runtime.enable", {}, s)
+    await send("Runtime.addBinding", { name: NATIVE_BINDING, executionContextName: WORLD }, s)
+    await send("Page.addScriptToEvaluateOnNewDocument", { source: NATIVE_LINK_SCRIPT, worldName: WORLD }, s)
+    const world = await send("Page.createIsolatedWorld", { frameId: page.target, worldName: WORLD }, s).catch(() => null)
+    if (world) await send("Runtime.evaluate", { expression: NATIVE_LINK_SCRIPT, contextId: world.executionContextId }, s).catch(() => {})
   }
 
   async function cast(page) {
@@ -114,9 +229,10 @@ export async function startChrome({ quality = 80, onFrame, onNav, onTitle, onExi
   }
 
   /** Open a cell's page, or bring a parked one back at a (new) size. */
-  async function open({ cell, url, w, h, scale = 1 }) {
+  async function open({ cell, url, w, h, scale = 1, keepInPanel = false }) {
     let page = pages.get(cell)
     if (page) {
+      page.keep = keepInPanel
       const resized = page.w !== Math.round(w) || page.h !== Math.round(h) || page.scale !== scale
       if (resized) {
         page.live = true
@@ -130,13 +246,10 @@ export async function startChrome({ quality = 80, onFrame, onNav, onTitle, onExi
     }
     const { targetId } = await send("Target.createTarget", { url: "about:blank", newWindow: true, background: false })
     const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true })
-    page = { cell, target: targetId, session: sessionId, w: 0, h: 0, scale: 1, gen: 0, live: true, url, title: "" }
+    page = { cell, target: targetId, session: sessionId, w: 0, h: 0, scale: 1, gen: 0, live: true, keep: keepInPanel, url, title: "" }
     pages.set(cell, page)
     sessions.set(sessionId, cell)
-    await send("Page.enable", {}, sessionId)
-    await send("Emulation.setFocusEmulationEnabled", { enabled: true }, sessionId)
-    await send("Page.setWebLifecycleState", { state: "active" }, sessionId).catch(() => {})
-    await send("Emulation.setUserAgentOverride", { userAgent: await userAgent() }, sessionId)
+    await prepare(page)
     await size(page, w, h, scale)
     await send("Page.navigate", { url }, sessionId)
     return page
@@ -166,8 +279,11 @@ export async function startChrome({ quality = 80, onFrame, onNav, onTitle, onExi
       case "key": return key(page, cmd)
       case "text": return send("Input.insertText", { text: String(cmd.text ?? "") }, s)
       case "close":
-        pages.delete(cmd.cell)
-        sessions.delete(s)
+        if (page.parent) forget(page)
+        else {
+          pages.delete(cmd.cell)
+          sessions.delete(s)
+        }
         return send("Target.closeTarget", { targetId: page.target })
     }
   }
