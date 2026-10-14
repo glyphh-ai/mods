@@ -2,10 +2,12 @@
 // its browser cells live (headless Chrome via chrome.mjs, each page's JPEG
 // frames streamed into the cell, clicks and keys sent back).
 //
-// Started by the mod, which then posts the layouts (POST /api/layouts). Prints
-// lines of JSON to the mod alone: { t: "ready", port, token }, the shapes the
-// person drags ({ t: "layout", name, colWidths, rowHeights }) and the layout
-// they pick in the page ({ t: "active", name }).
+// Started by the mod, which then posts the layouts and the library they come
+// from (POST /api/layouts). Prints lines of JSON to the mod alone:
+// { t: "ready", port, token }, the shapes the person drags ({ t: "layout",
+// name, colWidths, rowHeights }), the layout they pick in the page ({ t:
+// "active", name }), and { t: "library", renamed? } once the page's workspace
+// editor has written ~/.glyphh (WORKSPACES_LIBRARY), checked by ./library.mjs.
 //
 // Locked to this machine and this page (./gate.mjs): it listens on 127.0.0.1
 // only, on a random port; every request carries the session's random token
@@ -20,13 +22,14 @@
 // JPEG stream stays as the fallback and as the bridge's own source.
 
 import { randomBytes } from "node:crypto"
-import { readFileSync } from "node:fs"
+import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { createServer } from "node:http"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { startChrome } from "./chrome.mjs"
 import { isAllowed, isLocal, openKeys } from "./gate.mjs"
+import { checkFavorite, checkFavoriteDelete, checkWorkspace, checkWorkspaceDelete } from "./library.mjs"
 
 const say = msg => process.stdout.write(JSON.stringify(msg) + "\n")
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -35,6 +38,18 @@ const KEYS = openKeys({ random: () => randomBytes(24).toString("hex") })
 
 let layouts = []
 let active = ""
+let library = { workspaces: [], favorites: [] }
+const LIBRARY = process.env.WORKSPACES_LIBRARY || ""
+
+/** A file written whole or not at all: to a temporary name, then moved. */
+function writeAtomic(path, value) {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(`${path}.tmp`, `${JSON.stringify(value, null, 2)}\n`)
+  renameSync(`${path}.tmp`, path)
+}
+
+const workspacePath = slug => join(LIBRARY, "workspaces", `${slug}.json`)
+const ASSETS = { "/ws/workspaces.js": "text/javascript", "/ws/grid.mjs": "text/javascript", "/ws/workspaces.css": "text/css" }
 
 // ── Streams ─────────────────────────────────────────────────────────────────
 
@@ -96,7 +111,7 @@ function page(req, url, res) {
 const pagesOpen = () => [...events].filter(e => e.role === "page").length
 
 const SECURITY = {
-  "Content-Security-Policy": "default-src 'self'; img-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'",
+  "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",
   "Cache-Control": "no-store",
@@ -165,6 +180,7 @@ const server = createServer(async (req, res) => {
       const body = await readBody(req)
       if (Array.isArray(body?.layouts)) layouts = body.layouts
       if (typeof body?.active === "string") active = body.active
+      if (Array.isArray(body?.library?.workspaces) && Array.isArray(body?.library?.favorites)) library = body.library
       emit({ t: "state" })
       json(res, {})
     } else if (route === "POST /api/shape") {
@@ -176,6 +192,22 @@ const server = createServer(async (req, res) => {
         say({ t: "layout", name: l.name, colWidths: l.colWidths, rowHeights: l.rowHeights })
       }
       json(res, {})
+    } else if (route === "GET /api/library") {
+      json(res, library)
+    } else if (route === "POST /api/workspace" || route === "POST /api/workspace/delete" || route === "POST /api/favorite" || route === "POST /api/favorite/delete") {
+      if (!LIBRARY) return json(res, { error: "There is nowhere to save: HOME is not set." }, 500)
+      const body = await readBody(req)
+      const done = saveLibrary(url.pathname, body)
+      if (done.error) return json(res, { error: done.error }, 400)
+      emit({ t: "library" })
+      json(res, done)
+    } else if (route === "POST /api/show") {
+      const body = await readBody(req)
+      emit({ t: "show", view: body?.view === "favorites" ? "favorites" : "workspaces" })
+      json(res, {})
+    } else if (req.method === "GET" && ASSETS[url.pathname]) {
+      res.writeHead(200, { ...SECURITY, "Content-Type": `${ASSETS[url.pathname]}; charset=utf-8` })
+      res.end(readFileSync(join(HERE, url.pathname.slice(4))))
     } else if (route === "POST /api/ops") {
       const body = await readBody(req)
       for (const cmd of [].concat(body ?? [])) await chrome.op(cmd).catch(() => {})
@@ -207,6 +239,39 @@ const server = createServer(async (req, res) => {
     json(res, { error: String(err?.message ?? err) }, 500)
   }
 })
+
+// ── The workspace editor's saves ────────────────────────────────────────────
+
+/** One save from the editor, checked, written, and told to the mod. */
+function saveLibrary(path, body) {
+  const { workspaces, favorites } = library
+  if (path === "/api/workspace") {
+    const ok = checkWorkspace(body, library)
+    if (ok.error) return ok
+    writeAtomic(workspacePath(ok.slug), ok.file)
+    if (ok.replaces) unlinkSync(workspacePath(ok.replaces))
+    const kept = workspaces.filter(w => w.slug !== ok.slug && w.slug !== ok.replaces)
+    const at = workspaces.findIndex(w => w.slug === (ok.replaces ?? ok.slug))
+    kept.splice(at < 0 ? kept.length : at, 0, { slug: ok.slug, file: ok.file })
+    library = { workspaces: kept, favorites }
+    say({ t: "library", ...(ok.replaces ? { renamed: { from: ok.replaces, to: ok.slug, name: ok.file.name, was: body.original } } : {}) })
+    return { ok: true, name: ok.file.name }
+  }
+  if (path === "/api/workspace/delete") {
+    const ok = checkWorkspaceDelete(String(body?.name ?? ""), workspaces)
+    if (ok.error) return ok
+    unlinkSync(workspacePath(ok.slug))
+    library = { workspaces: workspaces.filter(w => w.slug !== ok.slug), favorites }
+    say({ t: "library" })
+    return { ok: true }
+  }
+  const ok = path === "/api/favorite" ? checkFavorite(body, favorites) : checkFavoriteDelete(String(body?.id ?? ""), favorites, workspaces)
+  if (ok.error) return ok
+  writeAtomic(join(LIBRARY, "favorites.json"), { favorites: ok.favorites })
+  library = { workspaces, favorites: ok.favorites }
+  say({ t: "library" })
+  return { ok: true, ...(ok.id ? { id: ok.id } : {}) }
+}
 
 // ── Life ────────────────────────────────────────────────────────────────────
 

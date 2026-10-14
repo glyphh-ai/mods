@@ -41,16 +41,36 @@
   .view .input:focus { box-shadow: inset 0 0 0 2px var(--accent); }
   .native { flex: 1; display: grid; place-items: center; color: var(--dim); text-align: center; padding: 12px; }
   .native b { color: var(--text); }
+  .hidden { display: none !important; }
 </style>
 </head>
 <body>
 <div id="top"></div>
 <div id="grid"></div>
+<div id="ws" class="ws-view hidden"></div>
 <script>
 "use strict"
 // The session's token, put here by the server; the one-time key leaves the address.
 const T = "__WORKSPACES_TOKEN__"
+const START_VIEW = new URLSearchParams(location.search).get("view")
 history.replaceState(null, "", "/")
+
+// The workspace editor (workspaces.js), loaded beside the page with the token.
+window.WORKSPACES = {
+  token: T,
+  openLayout: name => { window.WORKSPACES_EDITOR?.hide(); drawTabs(); switchTo(name) },
+}
+document.head.append(Object.assign(document.createElement("link"), { rel: "stylesheet", href: `/ws/workspaces.css?t=${T}` }))
+const editorReady = new Promise(resolve => {
+  const script = Object.assign(document.createElement("script"), { type: "module", src: `/ws/workspaces.js?t=${T}` })
+  script.onload = resolve
+  document.head.append(script)
+})
+async function showEditor(view) {
+  await editorReady
+  await window.WORKSPACES_EDITOR.show(view)
+  drawTabs()
+}
 const api = (path, body) => fetch(path, {
   method: body === undefined ? "GET" : "POST",
   headers: { "X-Token": T, "Content-Type": "application/json" },
@@ -91,9 +111,18 @@ function drawTabs() {
     const b = document.createElement("button")
     b.textContent = `${i + 1} ${l.name}`
     b.className = l.name === state.active ? "on" : ""
-    b.onclick = () => switchTo(l.name)
+    b.onclick = () => window.WORKSPACES.openLayout(l.name)
     top.append(b)
   })
+  const editor = document.createElement("button")
+  editor.textContent = "Workspaces…"
+  editor.className = window.WORKSPACES_EDITOR?.isOpen() ? "on" : ""
+  editor.title = "Make and change workspaces and favourites"
+  editor.onclick = () => {
+    if (window.WORKSPACES_EDITOR?.isOpen()) { window.WORKSPACES_EDITOR.hide(); drawTabs() }
+    else showEditor("workspaces")
+  }
+  top.append(editor)
   const hint = document.createElement("span")
   hint.className = "hint"
   hint.textContent = "click a page to type into it · drag the lines to resize · alt+1…9 switch"
@@ -144,7 +173,8 @@ function draw() {
   for (const cell of l.cells) {
     const el = cell.panel === "browser" ? browserCell(l, cell) : nativeCell(cell)
     const span = Math.max(1, cell.rowSpan || 1)
-    el.style.gridColumn = `${cell.col * 2 + 1}`
+    const wide = Math.max(1, cell.colSpan || 1)
+    el.style.gridColumn = `${cell.col * 2 + 1} / span ${wide * 2 - 1}`
     el.style.gridRow = `${cell.row * 2 + 1} / span ${span * 2 - 1}`
     grid.append(el)
   }
@@ -318,6 +348,8 @@ const es = new EventSource(`/events?t=${T}`)
 es.onmessage = ev => {
   const m = JSON.parse(ev.data)
   if (m.t === "state") return load()
+  if (m.t === "show") return showEditor(m.view)
+  if (m.t === "library") return editorReady.then(() => window.WORKSPACES_EDITOR.refresh())
   if (m.t === "answer") { answers.get(m.cell)?.(m.sdp); answers.delete(m.cell); return }
   if (m.t === "rtc-error") return
   pageInfo[m.cell] = { ...(pageInfo[m.cell] || {}), ...(m.t === "nav" ? { url: m.url } : { title: m.title }) }
@@ -338,7 +370,7 @@ async function load() {
   for (const p of state.pages || []) pageInfo[p.cell] = { url: p.url, title: p.title }
   draw()
 }
-load()
+load().then(() => { if (START_VIEW) showEditor(START_VIEW) })
 </script>
 </body>
 </html>
