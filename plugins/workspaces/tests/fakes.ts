@@ -36,6 +36,10 @@ export function memDisk(home: string | null = HOME) {
     list: async dir =>
       [...files.keys()].filter(p => p.startsWith(`${dir}/`) && !p.slice(dir.length + 1).includes('/')).map(p => p.slice(dir.length + 1)),
     remove: async p => void files.delete(p),
+    rename: async (from, to) => {
+      files.set(to, files.get(from)!)
+      files.delete(from)
+    },
     order,
   }
   const json = (slug: string) => JSON.parse(files.get(`${DIR}/${slug}.json`)!)
@@ -58,7 +62,7 @@ export function fakeApp() {
   const calls: string[] = []
   const toasts: string[] = []
   const asked: string[] = []
-  const tabs: { tabId: string; origin: string }[] = []
+  const tabs: { tabId: string; url: string }[] = []
   const files = new Set<string>()
   const world = {
     cwd: '/proj',
@@ -66,34 +70,31 @@ export function fakeApp() {
     clickFails: new Set<string>(),
     browserRefuses: false,
     browserSilent: false,
-    contextFails: false,
     folderAnswer: 'ok' as 'ok' | 'error' | 'throw',
     findOut: '',
     findFails: false,
     nextTab: 1,
   }
-  const paneTabs = value<Record<string, string>>({})
-  const openFile = value<string | null>(null)
   const app: App = {
     mcp: async (server, tool, args) => {
       calls.push(`${server}.${tool} ${JSON.stringify(args)}`)
       if (server === 'Claude_Browser') {
         if (world.browserRefuses) return mcpText('refused', true)
         if (world.browserSilent) return { content: [{ type: 'image' }], isError: true }
-        if (tool === 'tabs_select') return tabs.some(t => t.tabId === args.tabId) ? mcpText('ok') : mcpText('no such tab', true)
-        if (tool === 'tabs_context') {
-          if (world.contextFails) throw new Error('no listing')
-          return mcpText(`Tabs: ${JSON.stringify({ browserOpen: true, tabs })}`)
+        if (tool === 'tabs_close') {
+          const i = tabs.findIndex(t => t.tabId === args.tabId)
+          if (i < 0) throw new Error('no such tab')
+          tabs.splice(i, 1)
+          return mcpText('closed')
         }
         const tabId = `t${world.nextTab++}`
-        tabs.push({ tabId, origin: new URL(String(args.url)).origin })
+        tabs.push({ tabId, url: String(args.url) })
         return mcpText(`{"tabId": "${tabId}"}`)
       }
       if (server === 'ccd_directory') {
         if (world.folderAnswer === 'throw') throw new Error('unreachable')
         return world.folderAnswer === 'error' ? mcpText('not allowed', true) : mcpText('moved')
       }
-      if (server === 'ccd_window') throw new Error('no window')
       return mcpText('shown')
     },
     run: async argv => {
@@ -118,10 +119,8 @@ export function fakeApp() {
     isFile: async p => files.has(p),
     toast: text => void toasts.push(text),
     ask: text => void asked.push(text),
-    paneTabs,
-    openFile,
   }
-  return { app, open, calls, toasts, asked, tabs, files, world, paneTabs, openFile }
+  return { app, open, calls, toasts, asked, tabs, files, world }
 }
 
 // The test's own signing key, standing in for the site's.

@@ -11,8 +11,8 @@ export const PRICE = '$5'
 /** What the mod does, shown when the trial has ended. */
 export const ABOUT = [
   'Workspaces sets up the Claude desktop app for a kind of work in one command.',
-  '/dip Comms opens Gmail, Slack and Calendar as browser tabs; /dip IDE opens Files, Changes and Terminal.',
-  'Each workspace names its panes, its tabs and its folder, and /dip back returns to the one before.',
+  '/dip Comms lays Gmail, Slack and Calendar out live, side by side, in one page; /dip IDE opens Files, Changes and Terminal.',
+  'Each workspace is a grid of your favourite pages and the app\'s panes, and /dip back returns to the one before.',
 ]
 
 export const TRIAL_DAYS = 7

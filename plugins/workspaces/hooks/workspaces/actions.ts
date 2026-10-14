@@ -1,86 +1,115 @@
-// What the workspaces pane does: each action changes the files, reads them
-// back into the session, and leaves a note saying how it went.
-import type { Entry, Note, Pane, WorkspaceFile } from '../../types'
+// What the workspaces pane does: move between its pages, change a draft, and
+// save or delete, each change written to ~/.glyphh and read back.
+import type { Draft, Entry, Favorite, FavoriteDraft, Note, View } from '../../types'
 import type { Value } from './desktop.ts'
-import { addWorkspace, deleteWorkspace, patchWorkspace, readAll, renameWorkspace, type Disk } from './files.ts'
-import { blankFile, tabFor, urlOf } from './model.ts'
+import { blankDraft, draftOf, fileOf } from './draft.ts'
+import { blankFavorite, favoriteDraftOf, savedFavorites, withoutFavorite } from './favs.ts'
+import { addWorkspace, deleteWorkspace, load, replaceWorkspace, writeFavorites, type Disk } from './files.ts'
 
 export type Ctx = {
   disk: Disk
   entries: Value<Entry[]>
+  favorites: Value<Favorite[]>
   active: Value<string | null>
   previous: Value<string | null>
-  selected: Value<string | null>
+  view: Value<View>
   note: Value<Note | null>
 }
 
-export type Field = 'model' | 'folder' | 'permission_mode' | 'effort'
+const errorText = (err: unknown) => String(err).replace(/^Error: /, '')
 
-const say = (ctx: Ctx, text: string, isError = false) => ctx.note.set((): Note => ({ text, isError }))
-
-/** Runs one change; its note is `done`, or the reason it failed. */
-async function act(ctx: Ctx, done: string, change: () => Promise<void>): Promise<void> {
-  try {
-    await change()
-    const all = await readAll(ctx.disk)
-    await ctx.entries.set(() => all)
-    await say(ctx, done)
-  } catch (err) {
-    await say(ctx, String(err).replace(/^Error: /, ''), true)
-  }
+/** Reads ~/.glyphh again into the session. */
+export async function reload(ctx: Ctx): Promise<void> {
+  const { entries, favorites } = await load(ctx.disk)
+  await ctx.entries.set(() => entries)
+  await ctx.favorites.set(() => favorites)
 }
+
+const go = (ctx: Ctx, view: View) => ctx.view.set(() => view)
+
+export const showList = (ctx: Ctx) => go(ctx, { page: 'list' })
+export const newWorkspace = (ctx: Ctx) => go(ctx, { page: 'edit', draft: blankDraft() })
+
+export async function editWorkspace(ctx: Ctx, name: string): Promise<void> {
+  const entry = (await ctx.entries.get()).find(e => e.file.name === name)
+  if (entry) await go(ctx, { page: 'edit', draft: draftOf(entry.file) })
+}
+
+/** The open draft changed by `fn`; nothing when the form is not open. */
+export const changeDraft = (ctx: Ctx, fn: (d: Draft) => Draft) =>
+  ctx.view.set(v => (v.page === 'edit' ? { page: 'edit', draft: fn(v.draft) } : v))
+
+const failDraft = (ctx: Ctx, error: string) => changeDraft(ctx, d => ({ ...d, error, isConfirmingDelete: false }))
 
 const follow = (from: string, to: string | null) => (v: string | null) => (v === from ? to : v)
 
-export function create(ctx: Ctx, raw: string): Promise<void> {
-  const name = raw.trim()
-  if (!name) return say(ctx, 'Give the workspace a name.', true)
-  return act(ctx, `Workspace "${name}" created.`, async () => {
-    await addWorkspace(ctx.disk, blankFile(name))
-    await ctx.selected.set(() => name)
-  })
+export async function saveDraft(ctx: Ctx): Promise<void> {
+  const view = await ctx.view.get()
+  if (view.page !== 'edit') return
+  const d = view.draft
+  const made = fileOf(d, await ctx.entries.get(), await ctx.favorites.get())
+  if ('error' in made) return failDraft(ctx, made.error)
+  try {
+    if (d.original === null) await addWorkspace(ctx.disk, made.file)
+    else await replaceWorkspace(ctx.disk, d.original, made.file)
+    if (d.original !== null && d.original !== made.file.name) {
+      for (const v of [ctx.active, ctx.previous]) await v.set(follow(d.original, made.file.name))
+    }
+    await reload(ctx)
+    await ctx.note.set(() => ({ text: `Workspace "${made.file.name}" saved.`, isError: false }))
+    await showList(ctx)
+  } catch (err) {
+    await failDraft(ctx, errorText(err))
+  }
 }
 
-export function rename(ctx: Ctx, from: string, raw: string): Promise<void> {
-  const to = raw.trim()
-  if (!to || to === from) return Promise.resolve()
-  return act(ctx, `Renamed to "${to}".`, async () => {
-    await renameWorkspace(ctx.disk, from, to)
-    for (const v of [ctx.selected, ctx.active, ctx.previous]) await v.set(follow(from, to))
-  })
-}
-
-export const remove = (ctx: Ctx, name: string) =>
-  act(ctx, `Workspace "${name}" deleted.`, async () => {
+export async function deleteDraft(ctx: Ctx): Promise<void> {
+  const view = await ctx.view.get()
+  if (view.page !== 'edit' || view.draft.original === null) return
+  const name = view.draft.original
+  try {
     await deleteWorkspace(ctx.disk, name)
-    for (const v of [ctx.selected, ctx.active, ctx.previous]) await v.set(follow(name, null))
-  })
-
-const patch = (ctx: Ctx, name: string, done: string, fn: (f: WorkspaceFile) => WorkspaceFile) =>
-  act(ctx, done, () => patchWorkspace(ctx.disk, name, fn))
-
-/** A session setting; blank clears it. A folder must be absolute. */
-export function setField(ctx: Ctx, name: string, field: Field, raw: string): Promise<void> {
-  const value = raw.trim() || null
-  if (field === 'folder' && value && !value.startsWith('/')) return say(ctx, 'The folder must be an absolute path.', true)
-  return patch(ctx, name, `${name}: ${field.replace('_', ' ')} saved.`, f => ({ ...f, [field]: value }))
+    for (const v of [ctx.active, ctx.previous]) await v.set(follow(name, null))
+    await reload(ctx)
+    await ctx.note.set(() => ({ text: `Workspace "${name}" deleted.`, isError: false }))
+    await showList(ctx)
+  } catch (err) {
+    await failDraft(ctx, errorText(err))
+  }
 }
 
-/** A pane in or out of the workspace; one put in opens last. */
-export const togglePane = (ctx: Ctx, name: string, pane: Pane) =>
-  patch(ctx, name, `${name}: panes saved.`, f => ({
-    ...f,
-    desktop_panes: f.desktop_panes.includes(pane) ? f.desktop_panes.filter(p => p !== pane) : [...f.desktop_panes, pane],
-  }))
+export const showFavorites = (ctx: Ctx) => go(ctx, { page: 'favorites' })
+export const newFavorite = (ctx: Ctx) => go(ctx, { page: 'favorite', draft: blankFavorite() })
 
-export const toggleSidebar = (ctx: Ctx, name: string) =>
-  patch(ctx, name, `${name}: sidebar saved.`, f => ({ ...f, collapse_sidebar: !f.collapse_sidebar }))
-
-export function addTab(ctx: Ctx, name: string, raw: string): Promise<void> {
-  const url = urlOf(raw)
-  if (!url) return say(ctx, `"${raw.trim()}" is not a web address.`, true)
-  return patch(ctx, name, `${name}: ${url} added.`, f => ({ ...f, tabs: [...f.tabs, tabFor(url)] }))
+export async function editFavorite(ctx: Ctx, id: string): Promise<void> {
+  const f = (await ctx.favorites.get()).find(x => x.id === id)
+  if (f) await go(ctx, { page: 'favorite', draft: favoriteDraftOf(f) })
 }
 
-export const removeTab = (ctx: Ctx, name: string, index: number) =>
-  patch(ctx, name, `${name}: tab removed.`, f => ({ ...f, tabs: f.tabs.filter((_, i) => i !== index) }))
+export const changeFavorite = (ctx: Ctx, fn: (d: FavoriteDraft) => FavoriteDraft) =>
+  ctx.view.set(v => (v.page === 'favorite' ? { page: 'favorite', draft: fn(v.draft) } : v))
+
+const failFavorite = (ctx: Ctx, error: string) => changeFavorite(ctx, d => ({ ...d, error, isConfirmingDelete: false }))
+
+async function writeAndList(ctx: Ctx, favorites: Favorite[], said: string): Promise<void> {
+  await writeFavorites(ctx.disk, favorites)
+  await reload(ctx)
+  await ctx.note.set(() => ({ text: said, isError: false }))
+  await showFavorites(ctx)
+}
+
+export async function saveFavorite(ctx: Ctx): Promise<void> {
+  const view = await ctx.view.get()
+  if (view.page !== 'favorite') return
+  const made = savedFavorites(view.draft, await ctx.favorites.get())
+  if ('error' in made) return failFavorite(ctx, made.error)
+  await writeAndList(ctx, made.favorites, `Favourite "${view.draft.name.trim()}" saved.`).catch(err => failFavorite(ctx, errorText(err)))
+}
+
+export async function deleteFavorite(ctx: Ctx): Promise<void> {
+  const view = await ctx.view.get()
+  if (view.page !== 'favorite' || view.draft.id === null) return
+  const made = withoutFavorite(view.draft.id, await ctx.favorites.get(), await ctx.entries.get())
+  if ('error' in made) return failFavorite(ctx, made.error)
+  await writeAndList(ctx, made.favorites, `Favourite "${view.draft.name}" deleted.`).catch(err => failFavorite(ctx, errorText(err)))
+}

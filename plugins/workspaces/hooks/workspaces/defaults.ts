@@ -1,20 +1,24 @@
-// The workspaces a first run writes to ~/.glyphh/workspaces: generic for
-// anyone, so none names a folder (the session stays where it is).
-import type { WorkspaceFile } from '../../types'
-import { blankFile } from './model.ts'
+// What a first run writes to ~/.glyphh: favourites anyone uses, and
+// workspaces made of them. None names a folder (the session stays where it is).
+import type { Favorite, WorkspaceFile } from '../../types'
+import { defaultGrid } from './model.ts'
 
-export const DEFAULTS: WorkspaceFile[] = [
-  {
-    ...blankFile('Comms'),
-    desktop_panes: ['browser'],
-    tabs: [
-      { url: 'https://mail.google.com', name: 'Gmail' },
-      { url: 'https://app.slack.com', name: 'Slack' },
-      { url: 'https://calendar.google.com', name: 'Calendar' },
-    ],
-  },
-  // Files last: the pane opened last keeps its place in front.
-  { ...blankFile('IDE'), desktop_panes: ['terminal', 'changes', 'files'], collapse_sidebar: true },
-  { ...blankFile('Browse'), desktop_panes: ['browser'], tabs: [{ url: 'https://www.google.com', name: 'Google' }] },
-  { ...blankFile('Files'), desktop_panes: ['files'] },
+export const DEFAULT_FAVORITES: Favorite[] = [
+  { id: 'gmail', name: 'Gmail', url: 'https://mail.google.com' },
+  { id: 'slack', name: 'Slack', url: 'https://app.slack.com/client' },
+  { id: 'calendar', name: 'Calendar', url: 'https://calendar.google.com' },
+  { id: 'google', name: 'Google', url: 'https://www.google.com' },
+]
+
+const workspace = (name: string, items: Parameters<typeof defaultGrid>[0]): WorkspaceFile => ({ name, folder: null, ...defaultGrid(items) })
+
+export const DEFAULT_WORKSPACES: WorkspaceFile[] = [
+  workspace('Comms', [
+    { panel: 'browser', favorite: 'gmail' },
+    { panel: 'browser', favorite: 'slack' },
+    { panel: 'browser', favorite: 'calendar' },
+  ]),
+  workspace('IDE', [{ panel: 'terminal' }, { panel: 'files' }, { panel: 'changes' }]),
+  workspace('Browse', [{ panel: 'browser', favorite: 'google' }]),
+  workspace('Files', [{ panel: 'files' }]),
 ]

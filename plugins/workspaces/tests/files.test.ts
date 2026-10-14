@@ -1,83 +1,128 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { DEFAULTS } from '../hooks/workspaces/defaults.ts'
-import { addWorkspace, deleteWorkspace, loadOrSeed, patchWorkspace, readAll, renameWorkspace } from '../hooks/workspaces/files.ts'
-import { blankFile } from '../hooks/workspaces/model.ts'
-import { DIR, memDisk } from './fakes.ts'
+import { DEFAULT_FAVORITES } from '../hooks/workspaces/defaults.ts'
+import { addWorkspace, deleteWorkspace, freeId, load, patchWorkspace, replaceWorkspace, writeFavorites } from '../hooks/workspaces/files.ts'
+import type { WorkspaceFile } from '../types'
+import { DIR, HOME, memDisk } from './fakes.ts'
 
-const names = async (w: ReturnType<typeof memDisk>) => (await readAll(w.disk)).map(e => e.file.name)
+const FAVS = `${HOME}/.glyphh/favorites.json`
+const blank = (name: string): WorkspaceFile => ({ name, folder: null, cols: 1, rows: 1, col_widths: [1], row_heights: [1], cells: [] })
+const names = async (w: ReturnType<typeof memDisk>) => (await load(w.disk)).entries.map(e => e.file.name)
 
-describe('workspace files', () => {
-  test('first run: the built-in workspaces are written, in order, and none names a folder', async () => {
+describe('first run', () => {
+  test('writes the built-in workspaces and favourites; none names a folder', async () => {
     const w = memDisk()
-    const entries = await loadOrSeed(w.disk)
+    const { entries, favorites } = await load(w.disk)
     expect(entries.map(e => e.slug)).toEqual(['comms', 'ide', 'browse', 'files'])
-    expect(w.order.now()).toEqual(['comms', 'ide', 'browse', 'files'])
-    expect(w.json('comms').tabs.map((t: { name: string }) => t.name)).toEqual(['Gmail', 'Slack', 'Calendar'])
-    expect(w.json('ide')).toMatchObject({ desktop_panes: ['terminal', 'changes', 'files'], collapse_sidebar: true })
-    expect(DEFAULTS.every(f => f.folder === null)).toBe(true)
-    expect(w.files.get(`${DIR}/files.json`)).toEndWith('}\n')
+    expect(favorites).toEqual(DEFAULT_FAVORITES)
+    expect(favorites.find(f => f.id === 'slack')?.url).toBe('https://app.slack.com/client')
+    expect(JSON.parse(w.files.get(FAVS)!).favorites).toHaveLength(4)
+    expect(w.json('comms').cells).toEqual([
+      { panel: 'browser', favorite: 'gmail', col: 0, row: 0, row_span: 2 },
+      { panel: 'browser', favorite: 'slack', col: 1, row: 0 },
+      { panel: 'browser', favorite: 'calendar', col: 1, row: 1 },
+    ])
+    expect(entries.every(e => e.file.folder === null)).toBe(true)
+    expect([...w.files.keys()].some(k => k.endsWith('.tmp'))).toBe(false)
   })
 
-  test('later runs read the files: one deleted stays deleted, an emptied folder stays empty', async () => {
+  test('later runs read: a deleted workspace stays deleted, an emptied folder stays empty', async () => {
     const w = memDisk()
-    await loadOrSeed(w.disk)
+    await load(w.disk)
     w.files.delete(`${DIR}/files.json`)
-    expect((await loadOrSeed(w.disk)).map(e => e.file.name)).toEqual(['Comms', 'IDE', 'Browse'])
+    expect(await names(w)).toEqual(['Comms', 'IDE', 'Browse'])
     for (const slug of ['comms', 'ide', 'browse']) w.files.delete(`${DIR}/${slug}.json`)
     w.files.set(`${DIR}/notes.txt`, 'kept')
-    expect(await loadOrSeed(w.disk)).toEqual([])
+    expect(await names(w)).toEqual([])
   })
 
+  test('without HOME there is nowhere to keep them', async () => {
+    await expect(load(memDisk(null).disk)).rejects.toThrow('HOME is not set')
+  })
+})
+
+describe('migration from earlier versions', () => {
+  test("pages become favourites, one per address, and the files point at them", async () => {
+    const w = memDisk()
+    w.files.set(`${DIR}/comms.json`, JSON.stringify({ name: 'Comms', tabs: [{ url: 'https://mail.google.com', name: 'mail.google.com' }, { url: 'https://app.slack.com', name: 'Slack' }] }))
+    w.files.set(
+      `${DIR}/mix.json`,
+      JSON.stringify({ name: 'Mix', cols: 2, rows: 1, cells: [{ panel: 'browser', col: 0, row: 0, tab: 0 }, { panel: 'editor', col: 1, row: 0 }], tabs: [{ url: 'https://mail.google.com', name: 'Mail' }] }),
+    )
+    const { entries, favorites } = await load(w.disk)
+    expect(favorites).toEqual([
+      { id: 'mail-google-com', name: 'mail.google.com', url: 'https://mail.google.com' },
+      { id: 'slack', name: 'Slack', url: 'https://app.slack.com' },
+    ])
+    expect(w.json('mix').cells).toEqual([{ panel: 'browser', col: 0, row: 0, favorite: 'mail-google-com' }, { panel: 'files', col: 1, row: 0 }])
+    expect(w.json('comms').tabs).toBeUndefined()
+    expect(entries.map(e => e.file.name)).toEqual(['Comms', 'Mix'])
+    const again = await load(w.disk) // nothing left to migrate
+    expect(again.favorites).toEqual(favorites)
+  })
+
+  test('a favourites file is read as kept; what is not a favourite is passed over', async () => {
+    const w = memDisk()
+    w.files.set(`${DIR}/a.json`, JSON.stringify({ name: 'A', cols: 1, rows: 1, cells: [] }))
+    w.files.set(FAVS, JSON.stringify({ favorites: [{ id: 'x', name: 'X', url: 'https://x.com' }, { id: 'x', name: 'Dup', url: 'https://d.com' }, { id: 1 }, null] }))
+    expect((await load(w.disk)).favorites).toEqual([{ id: 'x', name: 'X', url: 'https://x.com' }])
+    w.files.set(FAVS, 'not json')
+    expect((await load(w.disk)).favorites).toEqual([])
+  })
+
+  test('without a favourites file and with nothing to migrate, there are none', async () => {
+    const w = memDisk()
+    w.files.set(`${DIR}/a.json`, JSON.stringify({ name: 'A', cols: 1, rows: 1, cells: [] }))
+    expect((await load(w.disk)).favorites).toEqual([])
+    expect(JSON.parse(w.files.get(FAVS)!)).toEqual({ favorites: [] })
+  })
+})
+
+describe('writing workspaces', () => {
   test('reading: the kept order first, new files after by name; junk is passed over', async () => {
     const w = memDisk()
-    expect(await readAll(w.disk)).toEqual([])
-    w.files.set(`${DIR}/b.json`, JSON.stringify({ name: 'B' }))
-    w.files.set(`${DIR}/a.json`, JSON.stringify({ name: 'A' }))
-    w.files.set(`${DIR}/c.json`, JSON.stringify({ name: 'C' }))
+    for (const n of ['b', 'a', 'c']) w.files.set(`${DIR}/${n}.json`, JSON.stringify({ name: n.toUpperCase(), cols: 1, rows: 1, cells: [] }))
     w.files.set(`${DIR}/broken.json`, '{')
-    w.files.set(`${DIR}/nameless.json`, '{}')
     await w.order.set(['c'])
     expect(await names(w)).toEqual(['C', 'A', 'B'])
   })
 
-  test('without HOME there is nowhere to keep them', async () => {
-    const w = memDisk(null)
-    await expect(loadOrSeed(w.disk)).rejects.toThrow('HOME is not set')
-  })
-
-  test('add: a free slug, last in order; a name taken is refused', async () => {
+  test('add takes a free slug, last in order', async () => {
     const w = memDisk()
-    await loadOrSeed(w.disk)
-    w.files.set(`${DIR}/research.json`, JSON.stringify({ name: 'Old research' }))
-    await addWorkspace(w.disk, blankFile('Research'))
+    await load(w.disk)
+    w.files.set(`${DIR}/research.json`, JSON.stringify({ name: 'Old research', cols: 1, rows: 1, cells: [] }))
+    await addWorkspace(w.disk, blank('Research'))
     expect(w.json('research-2').name).toBe('Research')
     expect(w.order.now().at(-1)).toBe('research-2')
-    await expect(addWorkspace(w.disk, blankFile('comms'))).rejects.toThrow('There is already a workspace "comms".')
   })
 
-  test('rename: the file follows the name and keeps its place', async () => {
+  test('replace: a new name moves the file and keeps its place', async () => {
     const w = memDisk()
-    await loadOrSeed(w.disk)
-    await renameWorkspace(w.disk, 'Comms', 'Mail')
+    await load(w.disk)
+    await replaceWorkspace(w.disk, 'Comms', { ...blank('Mail'), folder: '/m' })
     expect(w.files.has(`${DIR}/comms.json`)).toBe(false)
-    expect(w.json('mail').name).toBe('Mail')
+    expect(w.json('mail')).toMatchObject({ name: 'Mail', folder: '/m' })
     expect(await names(w)).toEqual(['Mail', 'IDE', 'Browse', 'Files'])
-
-    await renameWorkspace(w.disk, 'IDE', 'ide') // same slug: rewritten in place
+    await replaceWorkspace(w.disk, 'IDE', blank('ide'))
     expect(w.json('ide').name).toBe('ide')
-    await expect(renameWorkspace(w.disk, 'Mail', 'files')).rejects.toThrow('There is already a workspace "files".')
-    await expect(renameWorkspace(w.disk, 'Nope', 'X')).rejects.toThrow('There is no workspace "Nope".')
+    await expect(replaceWorkspace(w.disk, 'Nope', blank('X'))).rejects.toThrow('There is no workspace "Nope".')
   })
 
   test('patch and delete', async () => {
     const w = memDisk()
-    await loadOrSeed(w.disk)
+    await load(w.disk)
     await patchWorkspace(w.disk, 'Files', f => ({ ...f, folder: '/code' }))
     expect(w.json('files').folder).toBe('/code')
     await deleteWorkspace(w.disk, 'Files')
     expect(w.files.has(`${DIR}/files.json`)).toBe(false)
     expect(w.order.now()).toEqual(['comms', 'ide', 'browse'])
-    await expect(deleteWorkspace(w.disk, 'Files')).rejects.toThrow('There is no workspace "Files".')
+  })
+
+  test('favourites are written whole; ids come from names and never repeat', async () => {
+    const w = memDisk()
+    await writeFavorites(w.disk, [{ id: 'a', name: 'A', url: 'https://a.com' }])
+    expect(JSON.parse(w.files.get(FAVS)!)).toEqual({ favorites: [{ id: 'a', name: 'A', url: 'https://a.com' }] })
+    expect(freeId('Gmail', [{ id: 'gmail', name: 'Gmail', url: '' }])).toBe('gmail-2')
+    expect(freeId('***', [])).toBe('page')
   })
 })

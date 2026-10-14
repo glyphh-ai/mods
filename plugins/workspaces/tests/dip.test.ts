@@ -1,117 +1,201 @@
 import type { On } from 'claude-code'
 import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
 
-import { T0, runCommand, startSession, world, type WorldOptions } from './engine.ts'
+import { CHROME, DIR, T0, TOKEN, runCommand, startSession, world, type WorldOptions } from './engine.ts'
 
-async function started($: Engine, on: On, options?: WorldOptions) {
-  mock.store(on)
+async function started($: Engine, on: On, options?: WorldOptions, store?: Record<string, unknown>) {
+  mock.store(on, store)
   const clock = mock.clock(on, { now: T0 })
   const w = world(on, options)
   await startSession($)
-  return { ...w, clock, run: { command: (command: string, args?: string) => runCommand($, command, args) } }
+  return { ...w, clock, run: (command: string, args?: string) => runCommand($, command, args) }
 }
 
 describe('/dip', () => {
   test('lists the workspaces, switches by number, name and prefix, and back bounces', async ($, on) => {
-    const { run, open, mcp, w } = await started($, on)
-    expect(await run.command('dip')).toBe('Workspaces: 1 Comms · 2 IDE · 3 Browse · 4 Files')
-    expect(await run.command('dip', 'back')).toBe('No workspace to go back to yet.')
-    expect(await run.command('dip', '1')).toBe('→ Comms  Browser ✓')
-    expect(mcp).toContain('Claude_Browser.preview_start')
-    expect(await run.command('dip', 'ide')).toBe('→ IDE  Terminal ✓ · Changes ✓ · Files ✓')
-    expect([...open]).toEqual(['Terminal', 'Changes', 'Files'])
-    expect(await run.command('dip', 'back')).toStartWith('→ Comms')
-    expect(await run.command('dip', 'back')).toStartWith('→ IDE')
-    expect(await run.command('dip', 'Bro')).toStartWith('→ Browse')
-    expect(await run.command('dip', 'Browse')).toStartWith('→ Browse')
-    expect(await run.command('dip', 'back')).toStartWith('→ IDE')
-    expect(await run.command('dip', 'nope')).toBe('No workspace "nope". Workspaces: 1 Comms · 2 IDE · 3 Browse · 4 Files')
-    expect(await run.command('dip', '9')).toStartWith('No workspace "9"')
+    const { run, open, w } = await started($, on)
+    expect(await run('dip')).toBe('Workspaces: 1 Comms · 2 IDE · 3 Browse · 4 Files')
+    expect(await run('dip', 'back')).toBe('No workspace to go back to yet.')
+    expect(await run('dip', '1')).toBe('→ Comms  Browser ✓ · layout page ✓')
+    expect(await run('dip', 'ide')).toBe('→ IDE  Terminal ✓ · Files ✓ · Changes ✓')
+    expect([...open]).toEqual(['Terminal', 'Files', 'Changes'])
+    expect(await run('dip', 'back')).toStartWith('→ Comms')
+    expect(await run('dip', 'back')).toStartWith('→ IDE')
+    expect(await run('dip', 'Bro')).toStartWith('→ Browse')
+    expect(await run('dip', 'back')).toStartWith('→ IDE')
+    expect(await run('dip', 'nope')).toBe('No workspace "nope". Workspaces: 1 Comms · 2 IDE · 3 Browse · 4 Files')
+    expect(await run('dip', '9')).toStartWith('No workspace "9"')
     expect(w.closed).toContain('workspaces')
   })
 
-  test('drives the desktop app only', async ($, on) => {
-    const { run } = await started($, on, { surfaces: ['terminal'] })
-    expect(await run.command('dip', 'IDE')).toBe('Workspaces drives the Claude desktop app: run this in a desktop app session.')
-    expect(await run.command('files')).toBe('Workspaces drives the Claude desktop app: run this in a desktop app session.')
+  test('the first switch with pages starts the helper and opens the layout page once, by a one-time address', async ($, on) => {
+    const { run, helper, mcp } = await started($, on)
+    await run('dip', 'Comms')
+    expect(helper.started).toEqual([['node', expect.stringMatching(/\/helper\/viewer\.mjs$/)]])
+    expect(helper.layouts[0]?.active).toBe('Comms')
+    expect(helper.layouts[0]?.layouts.map(l => l.name)).toEqual(['Comms', 'IDE', 'Browse', 'Files'])
+    expect(mcp.filter(c => c === 'Claude_Browser.preview_start')).toHaveLength(1)
+
+    helper.open = 1 // the page is on screen now: a switch happens inside it
+    expect(await run('dip', 'Browse')).toBe('→ Browse  Browser ✓ · layout page ✓')
+    expect(helper.layouts.at(-1)?.active).toBe('Browse')
+    expect(mcp.filter(c => c === 'Claude_Browser.preview_start')).toHaveLength(1)
+    expect(helper.started).toHaveLength(1)
+
+    await run('dip', 'IDE') // no pages: the open layout page follows along
+    expect(helper.layouts.at(-1)?.active).toBe('IDE')
   })
 
-  test('with no workspaces says how to make one', async ($, on) => {
-    const { run, files } = await started($, on)
-    for (const k of [...files.keys()]) files.delete(k)
-    files.set('/home/t/.glyphh/workspaces/.keep', '')
-    await startSession($)
-    expect(await run.command('dip')).toBe('No workspaces yet: /workspaces makes one.')
+  test('the layout page closed: its old tab goes, a new one opens', async ($, on) => {
+    const { run, mcp } = await started($, on)
+    await run('dip', 'Comms')
+    await run('dip', 'Browse')
+    expect(mcp.filter(c => c.startsWith('Claude_Browser'))).toEqual(['Claude_Browser.preview_start', 'Claude_Browser.tabs_close', 'Claude_Browser.preview_start'])
   })
-})
 
-describe('/dip on the desktop', () => {
-  test('where the app refuses the mod opening pages, Claude is asked to open them', async ($, on) => {
+  test('where the app refuses the mod opening the page, Claude is asked to open the one address', async ($, on) => {
     const { run, asked, clock } = await started($, on, { browserRefuses: true })
-    expect(await run.command('dip', 'Comms')).toBe('→ Comms  Browser ✓')
+    expect(await run('dip', 'Comms')).toBe('→ Comms  Browser ✓ · layout page: Claude is asked to open it')
     expect(asked).toEqual([])
     await clock.settle()
-    expect(asked).toEqual([
-      'Open these in the browser pane as tabs, the first one in front (workspace "Comms"): https://mail.google.com, https://app.slack.com, https://calendar.google.com',
-    ])
+    expect(asked).toEqual(['Open this page in the browser pane (it opens once): http://127.0.0.1:4100/?k=once'])
+    expect(asked[0]).not.toContain(TOKEN)
   })
 
   test('where Claude cannot be asked either, a toast says what to allow', async ($, on) => {
     const { run, toasts, clock } = await started($, on, { browserRefuses: true, promptFails: true })
-    await run.command('dip', 'Browse')
+    await run('dip', 'Browse')
     await clock.settle()
     expect(toasts).toContain('The Browser pane is not available: allow mcp__Claude_Browser__preview_start')
   })
 
-  test('workspaces already on disk are read in name order when no order is kept', async ($, on) => {
-    const dir = '/home/t/.glyphh/workspaces'
-    const seed = { [`${dir}/zed.json`]: JSON.stringify({ name: 'Zed' }), [`${dir}/alpha.json`]: JSON.stringify({ name: 'Alpha' }) }
-    mock.store(on, { workspaceOrder: 'not a list' })
-    mock.clock(on, { now: T0 })
-    world(on, { seed })
-    await startSession($)
-    expect(await runCommand($, 'dip')).toBe('Workspaces: 1 Alpha · 2 Zed')
+  test('without Chrome and Node the layout page says what to install', async ($, on) => {
+    const { run, helper } = await started($, on, { noChrome: true, noNode: true })
+    expect(await run('dip', 'Comms')).toBe(
+      '→ Comms  Browser ✓ · The layout page needs Google Chrome (https://www.google.com/chrome/) and Node.js 18 or newer (https://nodejs.org). Install them, then start a new session.',
+    )
+    expect(helper.started).toEqual([])
+  })
+
+  test('a helper that stops says why', async ($, on) => {
+    const { run } = await started($, on, { helperFails: 'Chrome would not start' })
+    expect(await run('dip', 'Comms')).toBe('→ Comms  Browser ✓ · layout page ✗ the layout page stopped: Chrome would not start')
+  })
+
+  test('drives the desktop app only', async ($, on) => {
+    const { run } = await started($, on, { surfaces: ['terminal'] })
+    const said = 'Workspaces drives the Claude desktop app: run this in a desktop app session.'
+    expect(await run('dip', 'IDE')).toBe(said)
+    expect(await run('stream')).toBe(said)
+    expect(await run('files')).toBe(said)
+  })
+
+  test('with no workspaces says how to make one', async ($, on) => {
+    const { run } = await started($, on, { seed: { [`${DIR}/.keep`]: '' } })
+    expect(await run('dip')).toBe('No workspaces yet: /workspaces makes one.')
+    expect(await run('stream')).toBe('No workspaces yet: /workspaces makes one.')
+  })
+
+  test('workspaces on disk are read in name order when no order is kept', async ($, on) => {
+    const seed = {
+      [`${DIR}/zed.json`]: JSON.stringify({ name: 'Zed', cols: 1, rows: 1, cells: [] }),
+      [`${DIR}/alpha.json`]: JSON.stringify({ name: 'Alpha', cols: 1, rows: 1, cells: [] }),
+    }
+    const { run } = await started($, on, { seed }, { workspaceOrder: 'not a list' })
+    expect(await run('dip')).toBe('Workspaces: 1 Alpha · 2 Zed')
+  })
+})
+
+describe('/stream and the layout page', () => {
+  test('/stream opens the layout page on the open workspace, or the one named', async ($, on) => {
+    const { run, helper } = await started($, on)
+    expect(await run('stream')).toBe('Comms: layout page ✓')
+    expect(await run('stream', 'brow')).toBe('Browse: layout page ✓')
+    expect(helper.layouts.at(-1)?.active).toBe('Browse')
+    expect(await run('dip', 'back')).toStartWith('→ Comms')
+    expect(await run('stream', 'nope')).toStartWith('No workspace "nope"')
+  })
+
+  test('a shape dragged in the page is saved to the workspace file; a layout picked there becomes the open one', async ($, on) => {
+    const { run, helper, json, clock } = await started($, on)
+    await run('stream', 'Comms')
+    helper.say({ t: 'layout', name: 'Comms', colWidths: [0.7, 0.3], rowHeights: [0.5, 0.5] })
+    helper.say({ t: 'active', name: 'IDE' })
+    helper.say({ t: 'active', name: 'IDE' })
+    helper.say({ t: 'noise' })
+    await clock.settle()
+    expect(json('comms').col_widths).toEqual([0.7, 0.3])
+    expect(await run('dip', 'back')).toStartWith('→ Comms')
+  })
+
+  test('a shape for a workspace gone from disk is said, not thrown', async ($, on) => {
+    const { run, helper, toasts, clock } = await started($, on)
+    await run('stream', 'Comms')
+    helper.say({ t: 'layout', name: 'Gone', colWidths: [1], rowHeights: [1] })
+    await clock.settle()
+    expect(toasts).toContain('Workspaces: Error: There is no workspace "Gone".')
+  })
+
+  test('Chrome and Node are found where they are installed', async ($, on) => {
+    const { run, helper } = await started($, on)
+    await run('stream')
+    expect(helper.started[0]?.[0]).toBe('node')
+    expect(CHROME).toEndWith('Google Chrome')
+  })
+})
+
+describe('page_read', () => {
+  test('lists the open pages by favourite, and reads one by name or id', async ($, on) => {
+    const { run } = await started($, on)
+    const read = async (input: object) => ((await $.tool.call({ tool: 'mcp__workspaces__page_read', input } as never)) as { result?: unknown }).result
+    expect(await read({})).toEqual({ error: 'The layout page is not running: open it with /stream.' })
+    await run('stream')
+    expect(await read({})).toEqual({ pages: [{ page: 'gmail', name: 'Gmail', url: 'https://mail.google.com/mail', title: 'Inbox' }] })
+    expect(await read({ page: 'gmail' })).toEqual({ cell: 'gmail', text: 'Inbox (3)' })
+    expect(await read({ page: 'Calendar' })).toEqual({ cell: 'calendar', text: 'Inbox (3)' })
   })
 })
 
 describe('pane commands', () => {
   test('show and hide panes, open a page, open a file', async ($, on) => {
     const { run, open, files, w } = await started($, on)
-    expect(await run.command('files')).toBe('Files open')
-    expect(await run.command('files', 'off')).toBe('Files closed')
-    expect(await run.command('diff')).toBe('Changes open')
-    expect(await run.command('term')).toBe('Terminal open')
-    expect(await run.command('browser')).toBe('Browser open')
-    expect(await run.command('browser', 'example.com')).toBe('Browser: https://example.com')
+    expect(await run('files')).toBe('Files open')
+    expect(await run('files', 'off')).toBe('Files closed')
+    expect(await run('diff')).toBe('Changes open')
+    expect(await run('term')).toBe('Terminal open')
+    expect(await run('browser')).toBe('Browser open')
+    expect(await run('browser', 'example.com')).toBe('Browser: https://example.com')
     expect(open.has('Browser')).toBe(true)
-    expect(await run.command('editor')).toBe('Which file? /editor <path or name>')
-    expect(await run.command('editor', 'missing.ts')).toBe('No file "missing.ts" under /proj')
+    expect(await run('editor')).toBe('Which file? /editor <path or name>')
+    expect(await run('editor', 'missing.ts')).toBe('No file "missing.ts" under /proj')
     files.set('/proj/README.md', '# hi')
-    expect(await run.command('editor', 'README.md')).toBe('Editor: /proj/README.md')
+    expect(await run('editor', 'README.md')).toBe('Editor: /proj/README.md')
     w.find = '/proj/a/x.ts\n/proj/b/x.ts\n'
-    expect(await run.command('editor', 'x.ts')).toBe('Several match, say which:\n/proj/a/x.ts\n/proj/b/x.ts')
+    expect(await run('editor', 'x.ts')).toBe('Several match, say which:\n/proj/a/x.ts\n/proj/b/x.ts')
   })
 
   test('a name Claude Code already has goes to the other name; a command not ours passes by', async ($, on) => {
     const { run, commands } = await started($, on, { taken: { diff: 'the built-in diff', edit: 'the built-in edit', editor: 'the built-in editor' } })
     expect(commands).toContain('changes')
     expect(commands).not.toContain('edit')
-    expect(await run.command('changes')).toBe('Changes open')
-    expect(await run.command('diff')).toBe('the built-in diff')
+    expect(await run('changes')).toBe('Changes open')
+    expect(await run('diff')).toBe('the built-in diff')
   })
 
   test('a pane command that fails says why', async ($, on) => {
     const { run } = await started($, on, { menuFails: true })
-    expect(await run.command('term')).toBe('/term: no access')
+    expect(await run('term')).toBe('/term: no access')
   })
 })
 
 describe('/workspaces', () => {
-  test('opens the pane; says when it cannot be placed; other words get the usage', async ($, on) => {
-    const { run, w } = await started($, on)
-    expect(await run.command('workspaces')).toBe('Workspaces open.')
+  test('opens the pane; says when it cannot be placed, or what the layout page lacks; other words get the usage', async ($, on) => {
+    const { run, w } = await started($, on, { noNode: true })
+    expect(await run('workspaces')).toBe(
+      'Workspaces open.\nThe layout page needs Node.js 18 or newer (https://nodejs.org). Install it, then start a new session.',
+    )
     w.isPlaced = false
-    expect(await run.command('workspaces')).toBe('The Workspaces pane could not be placed: no-surface')
-    expect(await run.command('workspaces', 'hello')).toBe('Usage: /workspaces [key <licence>]')
+    expect(await run('workspaces')).toStartWith('The Workspaces pane could not be placed: no-surface')
+    expect(await run('workspaces', 'hello')).toBe('Usage: /workspaces [key <licence>]')
   })
 })

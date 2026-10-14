@@ -1,11 +1,15 @@
 // The world beneath the mod at the engine's level: HOME and ~/.glyphh in
-// memory, the desktop app's View menu and browser, the session's surfaces.
+// memory, Chrome and Node found, the desktop app's View menu and browser,
+// the session's surfaces, and the layout page's helper.
 import type { CommandRunInput, On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
 import { done, mcpText } from './fakes.ts'
 
 export const T0 = Date.parse('2026-10-14T09:00:00Z')
+export const DIR = '/home/t/.glyphh/workspaces'
+export const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+export const TOKEN = 'secret-token-0123456789'
 
 export const PANE = {
   plugin: 'workspaces',
@@ -37,6 +41,20 @@ export type WorldOptions = {
   rmFails?: boolean
   /** Files on disk before the session starts. */
   seed?: Record<string, string>
+  /** Google Chrome or Node is not installed. */
+  noChrome?: boolean
+  noNode?: boolean
+  /** The helper cannot start: it writes this and ends. */
+  helperFails?: string
+}
+
+/** The layout page's helper as the mod sees it: what it was sent, and a way to make it speak. */
+export type FakeHelper = {
+  started: string[][]
+  layouts: { layouts: { name: string; cells: { page?: string }[] }[]; active: string }[]
+  /** Pages listening for updates: 0 until the page is open. */
+  open: number
+  say(line: object): void
 }
 
 export function world(on: On, options: WorldOptions = {}) {
@@ -48,13 +66,36 @@ export function world(on: On, options: WorldOptions = {}) {
   const toasts: string[] = []
   const asked: string[] = []
   const commands: string[] = []
-  const w = { openExit: 0, isPlaced: true, find: '', copied: [] as string[], closed: [] as string[], opened: [] as string[] }
+  const w = {
+    isPlaced: true,
+    find: '',
+    copied: [] as string[],
+    closed: [] as string[],
+    opened: [] as string[],
+    openExit: 0,
+    /** What the site asked about a purchase, and its answers in turn. */
+    siteAsked: [] as string[],
+    siteAnswers: [] as string[],
+  }
+  const queue: string[] = []
+  let wake: (() => void) | null = null
+  const helper: FakeHelper = {
+    started: [],
+    layouts: [],
+    open: 0,
+    say: line => {
+      queue.push(`${JSON.stringify(line)}\n`)
+      wake?.()
+    },
+  }
 
   on('env.get', (_$, e) => ({ value: e.name === 'HOME' && home !== null ? home : undefined }))
-  on('fs.exists', (_$, e) => ({ value: files.has(e.path) || [...files.keys()].some(k => k.startsWith(`${e.path}/`)) }))
+  on('fs.exists', (_$, e) => ({
+    value: (e.path === CHROME && !options.noChrome) || files.has(e.path) || [...files.keys()].some(k => k.startsWith(`${e.path}/`)),
+  }))
   on('fs.list', (_$, e) => ({
     value: [...files.keys()]
-      .filter(p => p.startsWith(`${e.path}/`))
+      .filter(p => p.startsWith(`${e.path}/`) && !p.slice(e.path.length + 1).includes('/'))
       .map(p => ({ name: p.slice(e.path.length + 1), kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false })),
   }))
   on('fs.read', (_$, e) => ({ value: files.get(e.path) ?? '' }))
@@ -73,18 +114,26 @@ export function world(on: On, options: WorldOptions = {}) {
     commands.push(e.name)
     return { value: { command: e.name } }
   })
+  on('tool.register', (_$, e) => ({ value: { tool: `mcp__workspaces__${e.name}` } as never }))
   on('process.run', (_$, e) => {
     const argv = [...e.argv]
     ran.push(argv)
+    if (argv[1] === '--version') return { value: options.noNode ? done('', 127) : done('v22.1.0\n') }
+    if (argv[0] === '/bin/zsh') return { value: done('', 1) }
     if (argv[0] === 'open') return { value: done('', w.openExit) }
     if (argv[0] === '/bin/rm') {
       if (options.rmFails) return { value: done('', 1, 'Operation not permitted') }
       files.delete(argv[2]!)
       return { value: done() }
     }
+    if (argv[0] === '/bin/mv') {
+      files.set(argv[3]!, files.get(argv[2]!)!)
+      files.delete(argv[2]!)
+      return { value: done() }
+    }
     if (argv[0] === 'find') return { value: done(w.find) }
-    const script = argv[2] ?? ''
     if (options.menuFails) return { value: done('', 1, 'no access') }
+    const script = argv[2] ?? ''
     if (script.includes('get name of every menu item')) {
       return { value: done((['Files', 'Changes', 'Terminal', 'Browser'] as const).map(l => `${open.has(l) ? 'Hide' : 'Show'} ${l}`).join(', ')) }
     }
@@ -92,6 +141,35 @@ export function world(on: On, options: WorldOptions = {}) {
     if (m[1] === 'Show') open.add(m[2]!)
     else open.delete(m[2]!)
     return { value: done() }
+  })
+  on('process.spawn', async function* (_$, e) {
+    helper.started.push([...e.argv])
+    if (options.helperFails) {
+      yield { stream: 'stderr' as const, text: options.helperFails }
+      return { value: { code: 1, signal: null } }
+    }
+    yield { stream: 'stdout' as const, text: `${JSON.stringify({ t: 'ready', port: 4100, token: TOKEN })}\n` }
+    for (;;) {
+      while (queue.length) yield { stream: 'stdout' as const, text: queue.shift()! }
+      await new Promise<void>(resolve => (wake = resolve))
+    }
+  })
+  on('http.fetch', (_$, e) => {
+    const url = new URL(e.url)
+    const ok = (body: unknown) => ({ value: { ok: true, status: 200, headers: {}, text: JSON.stringify(body) } })
+    if (url.host === 'localhost:3000') {
+      w.siteAsked.push(e.url)
+      return { value: { ok: true, status: 200, headers: {}, text: w.siteAnswers.shift() ?? '{"paid":false}' } }
+    }
+    if (e.init?.headers?.['X-Token'] !== TOKEN) return { value: { ok: false, status: 403, headers: {}, text: 'forbidden' } }
+    if (url.pathname === '/api/layouts') {
+      helper.layouts.push(JSON.parse(String(e.init?.body)))
+      return ok({})
+    }
+    if (url.pathname === '/api/key') return ok({ key: 'once' })
+    if (url.pathname === '/api/state') return ok({ open: helper.open, pages: [{ cell: 'gmail', url: 'https://mail.google.com/mail', title: 'Inbox' }] })
+    if (url.pathname === '/api/text') return ok({ cell: url.searchParams.get('cell'), text: 'Inbox (3)' })
+    return { value: { ok: false, status: 404, headers: {}, text: '' } }
   })
   on('mcp.call', (_$, e) => {
     mcp.push(`${e.server}.${e.tool}`)
@@ -121,7 +199,8 @@ export function world(on: On, options: WorldOptions = {}) {
   })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   for (const [command, text] of Object.entries(options.taken ?? {})) on('command.run', { command }, () => ({ text }))
-  return { files, open, ran, mcp, toasts, asked, commands, w }
+  const json = (slug: string) => JSON.parse(files.get(`${DIR}/${slug}.json`)!)
+  return { files, open, ran, mcp, toasts, asked, commands, w, helper, json }
 }
 
 /** The session starting on the desktop, as the engine starts it. */

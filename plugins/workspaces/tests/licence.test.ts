@@ -11,12 +11,8 @@ async function started($: Engine, on: On, store: Record<string, unknown> = {}) {
   mock.store(on, store)
   const clock = mock.clock(on, { now: T0 })
   const w = world(on)
-  const fetched: string[] = []
-  const answers: string[] = []
-  on('http.fetch', (_$, e) => {
-    fetched.push(e.url)
-    return { value: { ok: true, status: 200, headers: {}, text: answers.shift() ?? '{"paid":false}' } }
-  })
+  const fetched = w.w.siteAsked
+  const answers = w.w.siteAnswers
   await startSession($)
   const run = (command: string, args?: string) => runCommand($, command, args)
   return { ...w, clock, run, fetched, answers, restart: () => startSession($) }
@@ -32,7 +28,7 @@ describe('licence in the engine', () => {
       const ui = await $.ui.mount({ ...PANE, surface })
       expect(await texts(ui)).toContain('Trial: 1 day left')
       expect(await ui.find({ type: 'Button', key: 'licence-buy' })).toMatchObject({ props: { label: 'Unlock — $5' } })
-      expect(await ui.find({ type: 'Input', key: 'ws-new' })).toBeDefined()
+      expect(await ui.find({ type: 'Button', key: 'ws-new' })).toBeDefined()
     })
   }
 
@@ -43,11 +39,13 @@ describe('licence in the engine', () => {
     const shown = await texts(ui)
     expect(shown).toContain('Workspaces sets up the Claude desktop app for a kind of work in one command.')
     expect(shown).toContain('The 7-day trial has ended. Unlock Workspaces for $5, once.')
-    expect(await ui.find({ type: 'Input', key: 'ws-new' })).toBeUndefined()
+    expect(await ui.find({ type: 'Button', key: 'ws-new' })).toBeUndefined()
     expect(await run('dip', 'IDE')).toBe(ENDED)
     expect(await run('dip')).toBe(ENDED)
     expect(await run('files')).toBe(ENDED)
     expect(await run('workspaces')).toBe('Workspaces open.')
+    expect(await run('stream')).toBe(ENDED)
+    expect(((await $.tool.call({ tool: 'mcp__workspaces__page_read', input: {} } as never)) as { result?: unknown }).result).toEqual({ error: ENDED })
   })
 
   test('the trial counts from the first run, not from each session', async ($, on) => {
