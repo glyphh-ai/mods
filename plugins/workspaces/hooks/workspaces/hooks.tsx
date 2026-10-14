@@ -1,12 +1,14 @@
 // Workspaces, wired to the engine: the one file of this module that holds `$`
 // and the workspaces' state (the engine follows `$` and atoms only within the
 // file whose hook received them), handing the rest Disk, App and Switcher
-// closures. It runs the layout page's helper (helper/viewer.mjs), whose
-// workspace editor writes ~/.glyphh; the mod reads it again when told.
+// closures. It runs the layout page's helper (helper/viewer.mjs), detached so
+// it outlives the mod's reloads: a reload finds it again and keeps it when its
+// code is the same. Its workspace editor writes ~/.glyphh; the mod reads it
+// again when told.
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, On } from 'claude-code'
+import type { EngineInterface, On, Timer } from 'claude-code'
 
-import type { Entry, Favorite, Note, Requirements } from '../../types'
+import type { Entry, Favorite, HelperInfo, Note, Requirements } from '../../types'
 import { INITIAL, refusal } from '../licence/access.ts'
 import { findFile, openPage, showFile, togglePane, type App, type MenuPane } from './desktop.ts'
 import { findWorkspace, listText } from './dip.ts'
@@ -14,7 +16,7 @@ import { load, patchWorkspace, type Disk } from './files.ts'
 import { WorkspaceList } from './list.tsx'
 import { findChrome, findNode, missingText, type Probe } from './requirements.ts'
 import { push, showLayout, switchTo, type Switcher } from './stream.ts'
-import { lineReader, linkTo, parseLine, scrub, type Link, type ViewerMessage } from './viewer.ts'
+import { HELPER_FILES, linkTo, versionOf, type Link, type ViewerMessage } from './viewer.ts'
 
 const PANE = 'workspaces'
 const ORDER_KEY = 'workspaceOrder'
@@ -28,6 +30,7 @@ const previous = atom({ plugin: 'workspaces', key: 'previous' } as const, null a
 const note = atom({ plugin: 'workspaces', key: 'note' } as const, null as Note | null)
 const requirements = atom({ plugin: 'workspaces', key: 'requirements' } as const, null as Requirements | null)
 const layoutTab = atom({ plugin: 'workspaces', key: 'layoutTab' } as const, null as string | null)
+const helperInfo = atom({ plugin: 'workspaces', key: 'helper' } as const, null as HelperInfo | null)
 
 /** The pane commands, each under its own name or, where Claude Code or
  *  another plugin has that name, its other one. */
@@ -44,8 +47,9 @@ const MENU_OF: Record<Exclude<PaneCommand, 'editor'>, MenuPane> = { files: 'file
 /** Registered name → the pane command it runs; rebuilt at each load. */
 const commandNames: Record<string, PaneCommand> = {}
 
-/** The running helper: its link and its token (kept here, written nowhere). */
-let helper: { link: Link; token: string } | null = null
+/** The helper this load of the mod talks to, and the timer that collects its messages. */
+let helper: { link: Link } | null = null
+let collecting: Timer | null = null
 let starting: Promise<Link> | null = null
 
 function disk($: EngineInterface): Disk {
@@ -137,42 +141,89 @@ async function onHelper($: EngineInterface, m: Exclude<ViewerMessage, { t: 'read
   if (helper) await push(switcher($), helper.link, (await read($, active)) ?? '')
 }
 
-/** The layout page's helper, started once; it lives with this module. */
+const linkOf = ($: EngineInterface, info: HelperInfo) => linkTo((url, init) => $.http.fetch(url, init), info.port, info.token)
+
+/** The version of the helper's code in this copy of the mod. */
+async function helperVersion($: EngineInterface): Promise<string> {
+  const texts = []
+  for (const f of HELPER_FILES) texts.push(String(await $.fs.read(`${$.plugin.root}/helper/${f}`).catch(() => '')))
+  return versionOf(texts)
+}
+
+/** Talks to a running helper: its messages collected every second, which
+ *  keeps it alive; one that stopped answering is let go. */
+function attach($: EngineInterface, link: Link): Link {
+  helper = { link }
+  collecting?.cancel()
+  collecting = $.clock.every(1000, () => {
+    link
+      .inbox()
+      .then(async messages => {
+        for (const m of messages) await onHelper($, m).catch(err => $.ui.toast(`Workspaces: ${String(err)}`))
+      })
+      .catch(async () => {
+        if (helper?.link !== link) return
+        collecting?.cancel()
+        helper = null
+        await update($, helperInfo, () => null)
+      })
+  })
+  return link
+}
+
+/** The helper kept from before this load: found again when its code is
+ *  this copy's; told to leave when it is not. */
+async function reattach($: EngineInterface, version: string): Promise<Link | null> {
+  const kept = await read($, helperInfo)
+  if (!kept) return null
+  const link = linkOf($, kept)
+  const running = await link.version().catch(() => null)
+  if (running === version) return attach($, link)
+  if (running !== null) await link.quit().catch(() => undefined)
+  collecting?.cancel()
+  helper = null
+  await update($, helperInfo, () => null)
+  return null
+}
+
+const randomHex = (n: number) => Array.from(crypto.getRandomValues(new Uint8Array(n)), b => b.toString(16).padStart(2, '0')).join('')
+
+/** The layout page's helper: the one running, or a new one started detached
+ *  on a port and with a token chosen here; up when it answers. */
 function startHelper($: EngineInterface): Promise<Link> {
   if (helper) return Promise.resolve(helper.link)
-  starting ??= new Promise<Link>((resolve, reject) => {
-    void (async () => {
-      const req = await read($, requirements)
-      const home = await $.env.get('HOME')
-      let token: string | undefined
-      let error = ''
-      try {
-        const child = $.process.spawn({
-          argv: [req?.node ?? 'node', `${$.plugin.root}/helper/viewer.mjs`],
-          env: { WORKSPACES_CHROME: req?.chrome ?? '', WORKSPACES_LIBRARY: home ? `${home.replace(/\/$/, '')}/.glyphh` : '' },
-        })
-        const lines = lineReader()
-        for await (const { stream, text } of child) {
-          if (stream === 'stderr') {
-            error = text
-            continue
-          }
-          for (const line of lines(text)) {
-            const m = parseLine(line)
-            if (m?.t === 'ready') {
-              token = m.token
-              helper = { link: linkTo((url, init) => $.http.fetch(url, init), m.port, m.token), token }
-              resolve(helper.link)
-            } else if (m) await onHelper($, m).catch(err => $.ui.toast(`Workspaces: ${scrub(String(err), token)}`))
-          }
+  starting ??= (async () => {
+    const version = await helperVersion($)
+    const kept = await reattach($, version)
+    if (kept) return kept
+    const req = await read($, requirements)
+    const home = await $.env.get('HOME')
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const info: HelperInfo = { port: 20000 + (crypto.getRandomValues(new Uint16Array(1))[0]! % 40000), token: randomHex(24) }
+      const launch = $.process.spawn({
+        argv: [req?.node ?? 'node', `${$.plugin.root}/helper/viewer.mjs`],
+        env: {
+          WORKSPACES_DETACH: '1',
+          WORKSPACES_PORT: String(info.port),
+          WORKSPACES_TOKEN: info.token,
+          WORKSPACES_VERSION: version,
+          WORKSPACES_CHROME: req?.chrome ?? '',
+          WORKSPACES_LIBRARY: home ? `${home.replace(/\/$/, '')}/.glyphh` : '',
+        },
+      })
+      for await (const _ of launch); // the launcher starts the helper in its own session and exits
+      const link = linkOf($, info)
+      for (let i = 0; i < 20; i++) {
+        if ((await link.version().catch(() => null)) === version) {
+          await update($, helperInfo, () => info)
+          return attach($, link)
         }
-      } catch (err) {
-        error = String(err)
+        await $.clock.sleep(100)
       }
-      helper = null
-      starting = null
-      reject(new Error(`the layout page stopped${error ? `: ${scrub(error, token)}` : ''}`))
-    })()
+    }
+    throw new Error('the layout page did not start')
+  })().finally(() => {
+    starting = null
   })
   return starting
 }
@@ -248,6 +299,7 @@ export function workspaces(on: On) {
     const p = probe($)
     const found = { chrome: await findChrome(p, await $.env.get('HOME')), node: await findNode(p) }
     await update($, requirements, () => found)
+    await reattach($, await helperVersion($)) // a reload keeps the page up
     await registerCommands($)
     return next(e)
   })

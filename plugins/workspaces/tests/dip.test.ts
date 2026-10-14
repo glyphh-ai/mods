@@ -1,7 +1,7 @@
 import type { On } from 'claude-code'
 import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
 
-import { CHROME, DIR, T0, TOKEN, runCommand, startSession, world, type WorldOptions } from './engine.ts'
+import { CHROME, DIR, T0, runCommand, startSession, world, type WorldOptions } from './engine.ts'
 
 async function started($: Engine, on: On, options?: WorldOptions, store?: Record<string, unknown>) {
   mock.store(on, store)
@@ -32,6 +32,7 @@ describe('/dip', () => {
     const { run, helper, mcp } = await started($, on)
     await run('dip', 'Comms')
     expect(helper.started).toEqual([['node', expect.stringMatching(/\/helper\/viewer\.mjs$/)]])
+    expect(helper.env[0]).toMatchObject({ WORKSPACES_DETACH: '1', WORKSPACES_PORT: expect.stringMatching(/^\d+$/), WORKSPACES_TOKEN: expect.stringMatching(/^[0-9a-f]{48}$/) })
     expect(helper.layouts[0]?.active).toBe('Comms')
     expect(helper.layouts[0]?.layouts.map(l => l.name)).toEqual(['Comms', 'IDE', 'Browse', 'Files'])
     expect(mcp.filter(c => c === 'Claude_Browser.preview_start')).toHaveLength(1)
@@ -54,12 +55,12 @@ describe('/dip', () => {
   })
 
   test('where the app refuses the mod opening the page, Claude is asked to open the one address', async ($, on) => {
-    const { run, asked, clock } = await started($, on, { browserRefuses: true })
+    const { run, asked, clock, helper } = await started($, on, { browserRefuses: true })
     expect(await run('dip', 'Comms')).toBe('→ Comms  Browser ✓ · layout page: Claude is asked to open it')
     expect(asked).toEqual([])
     await clock.settle()
-    expect(asked).toEqual(['Open this page in the browser pane (it opens once): http://127.0.0.1:4100/?k=once'])
-    expect(asked[0]).not.toContain(TOKEN)
+    expect(asked).toEqual([`Open this page in the browser pane (it opens once): http://127.0.0.1:${helper.alive?.port}/?k=once`])
+    expect(asked[0]).not.toContain(helper.alive!.token)
   })
 
   test('where Claude cannot be asked either, a toast says what to allow', async ($, on) => {
@@ -77,9 +78,35 @@ describe('/dip', () => {
     expect(helper.started).toEqual([])
   })
 
-  test('a helper that stops says why', async ($, on) => {
-    const { run } = await started($, on, { helperFails: 'Chrome would not start' })
-    expect(await run('dip', 'Comms')).toBe('→ Comms  Browser ✓ · layout page ✗ the layout page stopped: Chrome would not start')
+  test('a helper that never comes up is tried twice, then said', async ($, on) => {
+    const { run, helper, clock } = await started($, on, { helperFails: true })
+    const said = run('dip', 'Comms')
+    await clock.advance(5000)
+    expect(await said).toBe('→ Comms  Browser ✓ · layout page ✗ the layout page did not start')
+    expect(helper.started).toHaveLength(2)
+  })
+
+  test('a reload finds the running helper again; one with other code is told to leave and replaced', async ($, on) => {
+    const { run, helper, files } = await started($, on)
+    await run('dip', 'Comms')
+    await startSession($) // a reload: session.start runs again
+    await run('dip', 'Browse')
+    expect(helper.started).toHaveLength(1)
+    const viewer = helper.started[0]![1]!
+    files.set(viewer, 'changed code')
+    await startSession($)
+    expect(helper.quits).toBe(1)
+    await run('dip', 'Comms')
+    expect(helper.started).toHaveLength(2)
+  })
+
+  test('a helper gone away is let go, and the next switch starts another', async ($, on) => {
+    const { run, helper, clock } = await started($, on)
+    await run('dip', 'Comms')
+    helper.alive = null
+    await clock.advance(1000)
+    await run('dip', 'Browse')
+    expect(helper.started).toHaveLength(2)
   })
 
   test('drives the desktop app only', async ($, on) => {
@@ -123,7 +150,7 @@ describe('/stream and the layout page', () => {
     helper.say({ t: 'active', name: 'IDE' })
     helper.say({ t: 'active', name: 'IDE' })
     helper.say({ t: 'noise' })
-    await clock.settle()
+    await clock.advance(1000)
     expect(json('comms').col_widths).toEqual([0.7, 0.3])
     expect(await run('dip', 'back')).toStartWith('→ Comms')
   })
@@ -134,27 +161,27 @@ describe('/stream and the layout page', () => {
     files.set(`${DIR}/mail.json`, files.get(`${DIR}/comms.json`)!.replace('"Comms"', '"Mail"'))
     files.delete(`${DIR}/comms.json`)
     helper.say({ t: 'library', renamed: { from: 'comms', to: 'mail', name: 'Mail', was: 'Comms' } })
-    await clock.settle()
+    await clock.advance(1000)
     expect(await run('dip')).toBe('Workspaces: 1 Mail · 2 IDE · 3 Browse · 4 Files')
     expect(helper.layouts.at(-1)?.active).toBe('Mail')
     expect(helper.layouts.at(-1)?.library.workspaces.map(w => w.slug)).toEqual(['mail', 'ide', 'browse', 'files'])
     files.delete(`${DIR}/files.json`)
     helper.say({ t: 'library' })
-    await clock.settle()
+    await clock.advance(1000)
     expect(await run('dip')).toBe('Workspaces: 1 Mail · 2 IDE · 3 Browse')
   })
 
   test('the helper is told where ~/.glyphh is', async ($, on) => {
     const { run, helper } = await started($, on)
     await run('stream')
-    expect(helper.env[0]).toMatchObject({ WORKSPACES_CHROME: CHROME, WORKSPACES_LIBRARY: '/home/t/.glyphh' })
+    expect(helper.env[0]).toMatchObject({ WORKSPACES_CHROME: CHROME, WORKSPACES_LIBRARY: '/home/t/.glyphh', WORKSPACES_VERSION: expect.stringMatching(/^[0-9a-f]{16}$/) })
   })
 
   test('a shape for a workspace gone from disk is said, not thrown', async ($, on) => {
     const { run, helper, toasts, clock } = await started($, on)
     await run('stream', 'Comms')
     helper.say({ t: 'layout', name: 'Gone', colWidths: [1], rowHeights: [1] })
-    await clock.settle()
+    await clock.advance(1000)
     expect(toasts).toContain('Workspaces: Error: There is no workspace "Gone".')
   })
 

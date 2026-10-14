@@ -9,7 +9,6 @@ import { done, mcpText } from './fakes.ts'
 export const T0 = Date.parse('2026-10-14T09:00:00Z')
 export const DIR = '/home/t/.glyphh/workspaces'
 export const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-export const TOKEN = 'secret-token-0123456789'
 
 export const PANE = {
   plugin: 'workspaces',
@@ -44,8 +43,8 @@ export type WorldOptions = {
   /** Google Chrome or Node is not installed. */
   noChrome?: boolean
   noNode?: boolean
-  /** The helper cannot start: it writes this and ends. */
-  helperFails?: string
+  /** The helper never comes up. */
+  helperFails?: boolean
 }
 
 /** The layout page's helper as the mod sees it: what it was sent, and a way to make it speak. */
@@ -56,6 +55,9 @@ export type FakeHelper = {
   shown: string[]
   /** The environment the helper was started with. */
   env: Record<string, string>[]
+  /** The running helper: where it listens, its token and version; null when it is not. */
+  alive: { port: string; token: string; version: string } | null
+  quits: number
   /** Pages listening for updates: 0 until the page is open. */
   open: number
   say(line: object): void
@@ -81,18 +83,16 @@ export function world(on: On, options: WorldOptions = {}) {
     siteAsked: [] as string[],
     siteAnswers: [] as string[],
   }
-  const queue: string[] = []
-  let wake: (() => void) | null = null
+  const inbox: object[] = []
   const helper: FakeHelper = {
     started: [],
     layouts: [],
     shown: [],
     env: [],
+    alive: null,
+    quits: 0,
     open: 0,
-    say: line => {
-      queue.push(`${JSON.stringify(line)}\n`)
-      wake?.()
-    },
+    say: line => void inbox.push(line),
   }
 
   on('env.get', (_$, e) => ({ value: e.name === 'HOME' && home !== null ? home : undefined }))
@@ -150,16 +150,12 @@ export function world(on: On, options: WorldOptions = {}) {
   })
   on('process.spawn', async function* (_$, e) {
     helper.started.push([...e.argv])
-    helper.env.push({ ...(e.env ?? {}) })
-    if (options.helperFails) {
-      yield { stream: 'stderr' as const, text: options.helperFails }
-      return { value: { code: 1, signal: null } }
-    }
-    yield { stream: 'stdout' as const, text: `${JSON.stringify({ t: 'ready', port: 4100, token: TOKEN })}\n` }
-    for (;;) {
-      while (queue.length) yield { stream: 'stdout' as const, text: queue.shift()! }
-      await new Promise<void>(resolve => (wake = resolve))
-    }
+    const env = { ...(e.env ?? {}) }
+    helper.env.push(env)
+    // The launcher starts the helper detached and exits at once.
+    if (!options.helperFails) helper.alive = { port: env.WORKSPACES_PORT!, token: env.WORKSPACES_TOKEN!, version: env.WORKSPACES_VERSION! }
+    yield* []
+    return { value: { code: 0, signal: null } }
   })
   on('http.fetch', (_$, e) => {
     const url = new URL(e.url)
@@ -168,7 +164,15 @@ export function world(on: On, options: WorldOptions = {}) {
       w.siteAsked.push(e.url)
       return { value: { ok: true, status: 200, headers: {}, text: w.siteAnswers.shift() ?? '{"paid":false}' } }
     }
-    if (e.init?.headers?.['X-Token'] !== TOKEN) return { value: { ok: false, status: 403, headers: {}, text: 'forbidden' } }
+    const alive = helper.alive
+    if (!alive || url.port !== alive.port) throw new Error('connection refused')
+    if (e.init?.headers?.['X-Token'] !== alive.token) return { value: { ok: false, status: 403, headers: {}, text: 'forbidden' } }
+    if (url.pathname === '/api/inbox') return ok({ messages: inbox.splice(0) })
+    if (url.pathname === '/api/quit') {
+      helper.alive = null
+      helper.quits++
+      return ok({})
+    }
     if (url.pathname === '/api/layouts') {
       helper.layouts.push(JSON.parse(String(e.init?.body)))
       return ok({})
@@ -178,7 +182,7 @@ export function world(on: On, options: WorldOptions = {}) {
       helper.shown.push(JSON.parse(String(e.init?.body)).view)
       return ok({})
     }
-    if (url.pathname === '/api/state') return ok({ open: helper.open, pages: [{ cell: 'gmail', url: 'https://mail.google.com/mail', title: 'Inbox' }] })
+    if (url.pathname === '/api/state') return ok({ version: alive.version, open: helper.open, pages: [{ cell: 'gmail', url: 'https://mail.google.com/mail', title: 'Inbox' }] })
     if (url.pathname === '/api/text') return ok({ cell: url.searchParams.get('cell'), text: 'Inbox (3)' })
     return { value: { ok: false, status: 404, headers: {}, text: '' } }
   })

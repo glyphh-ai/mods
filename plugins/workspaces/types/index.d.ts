@@ -27,6 +27,10 @@ export type Entry = { slug: string; file: WorkspaceFile }
 /** The pane's last word: what an action did, or why not. */
 export type Note = { text: string; isError: boolean }
 
+/** The running layout page helper: where it listens and its token, kept in
+ *  the session's memory (never on disk) so a reload of the mod finds it again. */
+export type HelperInfo = { port: number; token: string }
+
 /** Where Google Chrome and Node are, as the session start found them. */
 export type Requirements = { chrome: string | null; node: string | null }
 
@@ -53,6 +57,7 @@ declare module 'claude-code' {
       previous: string | null
       note: Note | null
       requirements: Requirements | null
+      helper: HelperInfo | null
       /** The Browser pane's tab showing the layout page, kept across reloads. */
       layoutTab: string | null
     }

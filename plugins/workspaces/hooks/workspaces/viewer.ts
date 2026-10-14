@@ -27,43 +27,26 @@ export function layoutsFor(entries: Entry[], favorites: Favorite[]): ViewerLayou
 export type Renamed = { from: string; to: string; name: string; was: string }
 
 export type ViewerMessage =
-  | { t: 'ready'; port: number; token: string }
   | { t: 'layout'; name: string; colWidths: number[]; rowHeights: number[] }
   | { t: 'active'; name: string }
   | { t: 'library'; renamed?: Renamed }
 
 const numbers = (v: unknown): v is number[] => Array.isArray(v) && v.every(x => typeof x === 'number')
 
-/** One line the helper printed, if it is one of its messages. */
-export function parseLine(line: string): ViewerMessage | null {
-  let m: Record<string, unknown>
-  try {
-    m = JSON.parse(line) as Record<string, unknown>
-  } catch {
-    return null
-  }
-  if (m?.t === 'ready' && typeof m.port === 'number' && typeof m.token === 'string') return { t: 'ready', port: m.port, token: m.token }
-  if (m?.t === 'layout' && typeof m.name === 'string' && numbers(m.colWidths) && numbers(m.rowHeights)) {
+/** One of the helper's messages, if it is one. */
+export function parseMessage(raw: unknown): ViewerMessage | null {
+  const m = raw as Record<string, unknown> | null
+  if (!m || typeof m !== 'object') return null
+  if (m.t === 'layout' && typeof m.name === 'string' && numbers(m.colWidths) && numbers(m.rowHeights)) {
     return { t: 'layout', name: m.name, colWidths: m.colWidths, rowHeights: m.rowHeights }
   }
-  if (m?.t === 'active' && typeof m.name === 'string') return { t: 'active', name: m.name }
-  if (m?.t === 'library') {
+  if (m.t === 'active' && typeof m.name === 'string') return { t: 'active', name: m.name }
+  if (m.t === 'library') {
     const r = m.renamed as Record<string, unknown> | undefined
     const ok = r && ['from', 'to', 'name', 'was'].every(k => typeof r[k] === 'string')
     return ok ? { t: 'library', renamed: r as Renamed } : { t: 'library' }
   }
   return null
-}
-
-/** Pieces of output in, whole lines out. */
-export function lineReader(): (chunk: string) => string[] {
-  let buf = ''
-  return chunk => {
-    buf += chunk
-    const lines = buf.split('\n')
-    buf = lines.pop()!
-    return lines.filter(Boolean)
-  }
 }
 
 export type Fetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<{ ok: boolean; text: string }>
@@ -87,6 +70,11 @@ export type Link = {
   pageUrl(view?: EditorView): Promise<string>
   pages(): Promise<PageInfo[]>
   text(page: string): Promise<unknown>
+  /** The version of the helper's code it was started with. */
+  version(): Promise<string>
+  /** The messages waiting for the mod; asking keeps the helper alive. */
+  inbox(): Promise<ViewerMessage[]>
+  quit(): Promise<void>
 }
 
 export function linkTo(fetch: Fetch, port: number, token: string): Link {
@@ -107,8 +95,18 @@ export function linkTo(fetch: Fetch, port: number, token: string): Link {
     pageUrl: async view => `${base}/?k=${String((await ask('/api/key', {})).key)}${view ? `&view=${view}` : ''}`,
     pages: async () => ((await ask('/api/state')).pages as PageInfo[] | undefined) ?? [],
     text: page => ask(`/api/text?cell=${encodeURIComponent(page)}`),
+    version: async () => String((await ask('/api/state')).version ?? ''),
+    inbox: async () => (((await ask('/api/inbox')).messages as unknown[] | undefined) ?? []).flatMap(m => parseMessage(m) ?? []),
+    quit: async () => void (await ask('/api/quit', {})),
   }
 }
 
-/** A helper's error line, with the token taken out. */
-export const scrub = (text: string, token: string | undefined) => (token ? text.replaceAll(token, '***') : text).trim().slice(0, 200)
+/** The helper's files: a change to any of them makes a new helper. */
+export const HELPER_FILES = ['chrome.mjs', 'gate.mjs', 'grid.mjs', 'input.mjs', 'library.mjs', 'viewer.mjs', 'viewer.html', 'workspaces.js', 'workspaces.css', 'debug/probe.html']
+
+/** A version for the helper's code: a digest of its files' texts. */
+export async function versionOf(texts: string[]): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(texts.join('\u0000')))
+  return Array.from(new Uint8Array(digest).slice(0, 8), b => b.toString(16).padStart(2, '0')).join('')
+}
+

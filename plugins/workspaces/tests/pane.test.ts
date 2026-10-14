@@ -38,10 +38,10 @@ for (const surface of ['terminal', 'desktop', 'mobile'] as const) {
 }
 
 test('where the app refuses, Claude is asked to open the editor page; the address carries no token', async ($, on) => {
-  const { ui, asked, clock } = await mounted($, on, 'desktop', { browserRefuses: true })
+  const { ui, asked, clock, helper } = await mounted($, on, 'desktop', { browserRefuses: true })
   await ui.press({ key: 'ws-edit' })
   await clock.settle()
-  expect(asked).toEqual(['Open this page in the browser pane (it opens once): http://127.0.0.1:4100/?k=once&view=workspaces'])
+  expect(asked).toEqual([`Open this page in the browser pane (it opens once): http://127.0.0.1:${helper.alive?.port}/?k=once&view=workspaces`])
 })
 
 test('after the trial the launcher is the locked page', async ($, on) => {
