@@ -1,7 +1,7 @@
 import type { FileCellShape } from './grid.mjs'
 export type LibFile = { name: string; folder: string | null; cols: number; rows: number; col_widths: number[]; row_heights: number[]; cells: FileCellShape[] }
 export type LibWorkspace = { slug: string; file: LibFile }
-export type LibFavorite = { id: string; name: string; url: string }
+export type LibFavorite = { id: string; name: string; url: string; keep_in_panel?: boolean }
 export function slugOf(name: string, fallback?: string): string
 export function urlOf(raw: unknown): string | null
 export function checkWorkspace(input: unknown, library: { workspaces: LibWorkspace[]; favorites: LibFavorite[] }):

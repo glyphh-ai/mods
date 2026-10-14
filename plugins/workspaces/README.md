@@ -115,7 +115,11 @@ A workspace's page has:
 
 **Favourites** lists your pages and the workspaces that show each one. Add
 a favourite with a name and a web address, or click one to rename it or
-change its address; the workspaces that show it keep working. You can't
+change its address; the workspaces that show it keep working. Tick **Keep
+in panel** for pages like Slack, Teams or Zoom: a link that would open the
+desktop app, or a new window, then loads in the same cell instead. Without
+it, a new window opens over the cell with a close button, and a link to
+Slack, Teams, Zoom, Discord, Notion or Mail opens that app on your Mac. You can't
 delete a favourite while a workspace still shows it; Workspaces tells you
 which one.
 
@@ -146,8 +150,8 @@ Everything stays on your machine:
 - Sign-ins for the pages are kept in Chrome's own profile for Workspaces,
   in `~/Library/Application Support/glyphh-workspaces/chrome`.
 
-The first time it runs, Workspaces writes four favourites (Gmail, Slack,
-Calendar, Google) and four workspaces (Comms, IDE, Browse, Files). A
+The first time it runs, Workspaces writes four favourites (Gmail, Slack
+kept in panel, Calendar, Google) and four workspaces (Comms, IDE, Browse, Files). A
 workspace you delete stays deleted. Workspaces from an earlier version are
 read as they are, and their pages become favourites.
 

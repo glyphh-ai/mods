@@ -75,11 +75,13 @@ describe('what the editor may save: workspaces', () => {
 
 describe('what the editor may save: favourites', () => {
   test('add: a name and a web address, an id of its own; edit keeps the id', () => {
-    expect(checkFavorite({ id: null, name: ' Notion ', url: 'notion.so' }, FAVS)).toEqual({ id: 'notion', favorites: [...FAVS, { id: 'notion', name: 'Notion', url: 'https://notion.so' }] })
+    expect(checkFavorite({ id: null, name: ' Notion ', url: 'notion.so' }, FAVS)).toEqual({ id: 'notion', favorites: [...FAVS, { id: 'notion', name: 'Notion', url: 'https://notion.so', keep_in_panel: false }] })
+    expect(checkFavorite({ id: 'slack', name: 'Slack', url: 'https://app.slack.com/client', keep_in_panel: true }, FAVS)).toMatchObject({ favorites: [FAVS[0], { id: 'slack', keep_in_panel: true }] })
+    expect(checkFavorite({ id: 'slack', name: 'Slack', url: 'https://app.slack.com/client', keep_in_panel: 'yes' }, FAVS)).toMatchObject({ favorites: [FAVS[0], { id: 'slack', keep_in_panel: false }] })
     expect(checkFavorite({ name: '***', url: 'x.com' }, [{ id: 'page', name: 'P', url: 'u' }])).toMatchObject({ id: 'page-2' })
     expect(checkFavorite({ id: 'gmail', name: 'Mail', url: 'https://mail.google.com/u/1' }, FAVS)).toEqual({
       id: 'gmail',
-      favorites: [{ id: 'gmail', name: 'Mail', url: 'https://mail.google.com/u/1' }, FAVS[1]],
+      favorites: [{ id: 'gmail', name: 'Mail', url: 'https://mail.google.com/u/1', keep_in_panel: false }, FAVS[1]],
     })
   })
 

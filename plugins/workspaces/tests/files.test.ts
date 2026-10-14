@@ -13,7 +13,7 @@ describe('first run', () => {
     const { entries, favorites } = await load(w.disk)
     expect(entries.map(e => e.slug)).toEqual(['comms', 'ide', 'browse', 'files'])
     expect(favorites).toEqual(DEFAULT_FAVORITES)
-    expect(favorites.find(f => f.id === 'slack')?.url).toBe('https://app.slack.com/client')
+    expect(favorites.find(f => f.id === 'slack')).toMatchObject({ url: 'https://app.slack.com/client', keep_in_panel: true })
     expect(JSON.parse(w.files.get(FAVS)!).favorites).toHaveLength(4)
     expect(w.json('comms').cells).toEqual([
       { panel: 'browser', favorite: 'gmail', col: 0, row: 0, row_span: 2 },
@@ -49,8 +49,8 @@ describe('migration from earlier versions', () => {
     )
     const { entries, favorites } = await load(w.disk)
     expect(favorites).toEqual([
-      { id: 'mail-google-com', name: 'mail.google.com', url: 'https://mail.google.com' },
-      { id: 'slack', name: 'Slack', url: 'https://app.slack.com' },
+      { id: 'mail-google-com', name: 'mail.google.com', url: 'https://mail.google.com', keep_in_panel: false },
+      { id: 'slack', name: 'Slack', url: 'https://app.slack.com', keep_in_panel: false },
     ])
     expect(w.json('mix').cells).toEqual([{ panel: 'browser', col: 0, row: 0, favorite: 'mail-google-com' }, { panel: 'files', col: 1, row: 0 }])
     expect(w.json('comms').tabs).toBeUndefined()
@@ -62,8 +62,11 @@ describe('migration from earlier versions', () => {
   test('a favourites file is read as kept; what is not a favourite is passed over', async () => {
     const w = memDisk()
     w.files.set(`${DIR}/a.json`, JSON.stringify({ name: 'A', cols: 1, rows: 1, cells: [] }))
-    w.files.set(FAVS, JSON.stringify({ favorites: [{ id: 'x', name: 'X', url: 'https://x.com' }, { id: 'x', name: 'Dup', url: 'https://d.com' }, { id: 1 }, null] }))
-    expect((await load(w.disk)).favorites).toEqual([{ id: 'x', name: 'X', url: 'https://x.com' }])
+    w.files.set(FAVS, JSON.stringify({ favorites: [{ id: 'x', name: 'X', url: 'https://x.com' }, { id: 'y', name: 'Y', url: 'https://y.com', keep_in_panel: true }, { id: 'x', name: 'Dup', url: 'https://d.com' }, { id: 1 }, null] }))
+    expect((await load(w.disk)).favorites).toEqual([
+      { id: 'x', name: 'X', url: 'https://x.com', keep_in_panel: false },
+      { id: 'y', name: 'Y', url: 'https://y.com', keep_in_panel: true },
+    ])
     w.files.set(FAVS, 'not json')
     expect((await load(w.disk)).favorites).toEqual([])
   })
@@ -94,7 +97,7 @@ describe('writing workspaces', () => {
   })
 
   test('ids come from names and never repeat', () => {
-    expect(freeId('Gmail', [{ id: 'gmail', name: 'Gmail', url: '' }])).toBe('gmail-2')
+    expect(freeId('Gmail', [{ id: 'gmail', name: 'Gmail', url: '', keep_in_panel: false }])).toBe('gmail-2')
     expect(freeId('***', [])).toBe('page')
   })
 })

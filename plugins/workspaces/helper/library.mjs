@@ -1,6 +1,6 @@
 // library.mjs — what the workspace editor may save, checked on the server
 // before anything is written: workspaces (name, folder, grid, cells) and
-// favourites (name, web address). Pure: the mod's tests load it as the
+// favourites (name, web address, keep in panel). Pure: the mod's tests load it as the
 // server does. A workspace is { slug, file }; a favourite { id, name, url }.
 
 import { MAX_GRID } from "./grid.mjs"
@@ -124,9 +124,10 @@ export function checkFavorite(input, favorites) {
   if (bad) return { error: bad }
   const url = urlOf(input?.url)
   if (!url) return { error: `"${String(input?.url ?? "").trim()}" is not a web address.` }
-  if (id !== null) return { id, favorites: favorites.map(f => (f.id === id ? { ...f, name, url } : f)) }
+  const keep_in_panel = input?.keep_in_panel === true
+  if (id !== null) return { id, favorites: favorites.map(f => (f.id === id ? { ...f, name, url, keep_in_panel } : f)) }
   const fresh = free(slugOf(name, "page"), favorites.map(f => f.id))
-  return { id: fresh, favorites: [...favorites, { id: fresh, name, url }] }
+  return { id: fresh, favorites: [...favorites, { id: fresh, name, url, keep_in_panel }] }
 }
 
 /** The workspaces showing a favourite, by name. */

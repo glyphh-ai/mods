@@ -22,11 +22,11 @@ describe('the layout page', () => {
       colWidths: [0.5, 0.5],
       rowHeights: [1],
       cells: [
-        { panel: 'browser', col: 0, row: 0, colSpan: 1, rowSpan: 1, page: 'gmail', url: 'https://mail.google.com', title: 'Gmail' },
+        { panel: 'browser', col: 0, row: 0, colSpan: 1, rowSpan: 1, page: 'gmail', url: 'https://mail.google.com', title: 'Gmail', keepInPanel: false },
         { panel: 'terminal', col: 1, row: 0, colSpan: 1, rowSpan: 1 },
       ],
     })
-    expect(layouts[1]?.cells).toEqual([{ panel: 'browser', col: 1, row: 0, colSpan: 1, rowSpan: 1, page: 'gmail', url: 'https://mail.google.com', title: 'Gmail' }])
+    expect(layouts[1]?.cells).toEqual([{ panel: 'browser', col: 1, row: 0, colSpan: 1, rowSpan: 1, page: 'gmail', url: 'https://mail.google.com', title: 'Gmail', keepInPanel: false }])
   })
 
   test("the helper's messages", () => {

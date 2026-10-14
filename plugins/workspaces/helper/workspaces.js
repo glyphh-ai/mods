@@ -379,7 +379,7 @@ async function removeWorkspace() {
 // ── The favourite editor ────────────────────────────────────────────────────
 
 function editFavorite(f) {
-  favDraft = f ? { id: f.id, name: f.name, url: f.url, error: null } : { id: null, name: "", url: "", error: null }
+  favDraft = f ? { id: f.id, name: f.name, url: f.url, keep: f.keep_in_panel === true, error: null } : { id: null, name: "", url: "", keep: false, error: null }
   go("favorite")
 }
 
@@ -395,6 +395,13 @@ function renderFavorite() {
     el("input.settings-input", { type: "text", placeholder: "Gmail", spellcheck: "false", autocomplete: "off", value: d.name, oninput: e => (d.name = e.target.value) }),
     el("label.settings-label", { style: "margin-top:16px;" }, "Address"),
     el("input.settings-input", { type: "text", placeholder: "https://mail.google.com", spellcheck: "false", autocomplete: "off", value: d.url, oninput: e => (d.url = e.target.value) }),
+    // The app's "Keep in panel" (apps.html at v1.6.2), as it labels it.
+    el(
+      "label.settings-label",
+      { style: "display:flex;align-items:center;gap:8px;margin-top:12px;text-transform:none;letter-spacing:0;" },
+      el("input", { type: "checkbox", style: "width:auto;margin:0;flex:none;", checked: d.keep, onchange: e => (d.keep = e.target.checked) }),
+      "Keep in panel \u2014 block redirects to the native app (Slack, Teams, Zoom)",
+    ),
     el(
       "div.settings-actions",
       { style: "margin-top:28px;" },
@@ -407,7 +414,7 @@ function renderFavorite() {
 }
 
 async function saveFavorite() {
-  const r = await api("/api/favorite", { id: favDraft.id, name: favDraft.name, url: favDraft.url })
+  const r = await api("/api/favorite", { id: favDraft.id, name: favDraft.name, url: favDraft.url, keep_in_panel: favDraft.keep })
   if (!r.ok) {
     favDraft.error = r.body.error ?? "The favourite could not be saved."
     return render()

@@ -1,8 +1,10 @@
 /** What a cell shows: a favourite's live page, or one of the desktop app's panes. */
 export type Panel = 'browser' | 'files' | 'changes' | 'terminal'
 
-/** A page kept once and shown in any workspace: `~/.glyphh/favorites.json`. */
-export type Favorite = { id: string; name: string; url: string }
+/** A page kept once and shown in any workspace: `~/.glyphh/favorites.json`.
+ *  `keep_in_panel` keeps it in its cell: a jump to the native app (Slack,
+ *  Teams, Zoom) and a popup load in the same page. */
+export type Favorite = { id: string; name: string; url: string; keep_in_panel: boolean }
 
 /** A cell of a workspace's grid, `col_span` × `row_span` slots (1 when
  *  absent); a browser cell shows a favourite, by id. */

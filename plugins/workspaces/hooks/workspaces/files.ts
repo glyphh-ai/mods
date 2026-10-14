@@ -52,10 +52,10 @@ async function readFavorites(disk: Disk): Promise<Favorite[] | null> {
   const list = Array.isArray(raw?.favorites) ? raw.favorites : []
   const seen = new Set<string>()
   return list.flatMap((f: unknown) => {
-    const { id, name, url } = (f ?? {}) as Record<string, unknown>
+    const { id, name, url, keep_in_panel } = (f ?? {}) as Record<string, unknown>
     if (typeof id !== 'string' || typeof name !== 'string' || typeof url !== 'string' || seen.has(id)) return []
     seen.add(id)
-    return [{ id, name, url }]
+    return [{ id, name, url, keep_in_panel: keep_in_panel === true }]
   })
 }
 
@@ -93,7 +93,7 @@ export async function load(disk: Disk): Promise<Library> {
     const same = favorites.find(f => f.url === tab.url)
     if (same) return same.id
     const id = freeId(tab.name, favorites)
-    favorites.push({ id, name: tab.name, url: tab.url })
+    favorites.push({ id, name: tab.name, url: tab.url, keep_in_panel: false })
     added = true
     return id
   }

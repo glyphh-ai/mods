@@ -4,7 +4,7 @@ import type { Entry, Favorite, Panel } from '../../types'
 
 /** A cell as the layout page draws it; a browser cell's live page is keyed
  *  by its favourite, so one favourite is one page in every layout. */
-export type ViewerCell = { panel: Panel; col: number; row: number; colSpan: number; rowSpan: number; page?: string; url?: string; title?: string }
+export type ViewerCell = { panel: Panel; col: number; row: number; colSpan: number; rowSpan: number; page?: string; url?: string; title?: string; keepInPanel?: boolean }
 export type ViewerLayout = { name: string; cols: number; rows: number; colWidths: number[]; rowHeights: number[]; cells: ViewerCell[] }
 
 export function layoutsFor(entries: Entry[], favorites: Favorite[]): ViewerLayout[] {
@@ -18,7 +18,7 @@ export function layoutsFor(entries: Entry[], favorites: Favorite[]): ViewerLayou
       const base = { panel: c.panel, col: c.col, row: c.row, colSpan: c.col_span ?? 1, rowSpan: c.row_span ?? 1 }
       if (c.panel !== 'browser') return [base]
       const fav = favorites.find(f => f.id === c.favorite)
-      return fav ? [{ ...base, page: fav.id, url: fav.url, title: fav.name }] : []
+      return fav ? [{ ...base, page: fav.id, url: fav.url, title: fav.name, keepInPanel: fav.keep_in_panel }] : []
     }),
   }))
 }
@@ -102,7 +102,7 @@ export function linkTo(fetch: Fetch, port: number, token: string): Link {
 }
 
 /** The helper's files: a change to any of them makes a new helper. */
-export const HELPER_FILES = ['chrome.mjs', 'gate.mjs', 'grid.mjs', 'input.mjs', 'library.mjs', 'viewer.mjs', 'viewer.html', 'workspaces.js', 'workspaces.css', 'debug/probe.html']
+export const HELPER_FILES = ['chrome.mjs', 'gate.mjs', 'grid.mjs', 'input.mjs', 'library.mjs', 'popups.mjs', 'viewer.mjs', 'viewer.html', 'workspaces.js', 'workspaces.css', 'debug/probe.html']
 
 /** A version for the helper's code: a digest of its files' texts. */
 export async function versionOf(texts: string[]): Promise<string> {
