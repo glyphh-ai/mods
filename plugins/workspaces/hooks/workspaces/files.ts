@@ -1,6 +1,8 @@
 // ~/.glyphh: one file per workspace in workspaces/<slug>.json, kept in the
 // order the store remembers (new ones last), and the favourites they show in
-// favorites.json. Works on a Disk, closures over `$` that ./hooks.tsx hands it.
+// favorites.json. The mod reads them (and writes the first run's and an
+// earlier version's); the layout page's editor writes the rest
+// (helper/viewer.mjs). Works on a Disk, closures over `$` from ./hooks.tsx.
 import type { Entry, Favorite, WorkspaceFile } from '../../types'
 import { DEFAULT_FAVORITES, DEFAULT_WORKSPACES } from './defaults.ts'
 import { normalise, slugOf, type TabToFavorite } from './model.ts'
@@ -12,7 +14,6 @@ export type Disk = {
   exists(path: string): Promise<boolean>
   /** The names of the files in a folder. */
   list(dir: string): Promise<string[]>
-  remove(path: string): Promise<void>
   /** Moves a file into place in one step. */
   rename(from: string, to: string): Promise<void>
   order: { get(): Promise<string[]>; set(slugs: string[]): Promise<void> }
@@ -58,7 +59,7 @@ async function readFavorites(disk: Disk): Promise<Favorite[] | null> {
   })
 }
 
-export async function writeFavorites(disk: Disk, favorites: Favorite[]): Promise<void> {
+async function writeFavorites(disk: Disk, favorites: Favorite[]): Promise<void> {
   await writeAtomic(disk, `${await rootOf(disk)}/favorites.json`, json({ favorites }))
 }
 
@@ -110,45 +111,9 @@ export async function load(disk: Disk): Promise<Library> {
   return { entries: entries.sort((a, b) => rank(a.slug) - rank(b.slug)), favorites }
 }
 
-function freeSlug(name: string, taken: Entry[]): string {
-  const base = slugOf(name)
-  let slug = base
-  for (let i = 2; taken.some(e => e.slug === slug); i++) slug = `${base}-${i}`
-  return slug
-}
-
-async function find(disk: Disk, name: string): Promise<{ all: Entry[]; entry: Entry }> {
-  const { entries: all } = await load(disk)
-  const entry = all.find(e => e.file.name === name)
-  if (!entry) throw new Error(`There is no workspace "${name}".`)
-  return { all, entry }
-}
-
-export async function addWorkspace(disk: Disk, file: WorkspaceFile): Promise<void> {
-  const { entries: all } = await load(disk)
-  const slug = freeSlug(file.name, all)
-  await writeEntry(disk, slug, file)
-  await disk.order.set([...all.map(e => e.slug), slug])
-}
-
-/** A workspace's file replaced; a new name moves it to that name's slug, in
- *  the same place in the order. */
-export async function replaceWorkspace(disk: Disk, name: string, file: WorkspaceFile): Promise<void> {
-  const { all, entry } = await find(disk, name)
-  const slug = slugOf(file.name) === entry.slug ? entry.slug : freeSlug(file.name, all.filter(e => e !== entry))
-  await writeEntry(disk, slug, file)
-  if (slug !== entry.slug) await disk.remove(`${await dirOf(disk)}/${entry.slug}.json`)
-  await disk.order.set(all.map(e => (e === entry ? slug : e.slug)))
-}
-
 /** One workspace's file changed by `fn`, under the same slug. */
 export async function patchWorkspace(disk: Disk, name: string, fn: (f: WorkspaceFile) => WorkspaceFile): Promise<void> {
-  const { entry } = await find(disk, name)
+  const entry = (await load(disk)).entries.find(e => e.file.name === name)
+  if (!entry) throw new Error(`There is no workspace "${name}".`)
   await writeEntry(disk, entry.slug, fn(entry.file))
-}
-
-export async function deleteWorkspace(disk: Disk, name: string): Promise<void> {
-  const { all, entry } = await find(disk, name)
-  await disk.remove(`${await dirOf(disk)}/${entry.slug}.json`)
-  await disk.order.set(all.filter(e => e !== entry).map(e => e.slug))
 }

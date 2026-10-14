@@ -1,12 +1,10 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { DEFAULT_FAVORITES } from '../hooks/workspaces/defaults.ts'
-import { addWorkspace, deleteWorkspace, freeId, load, patchWorkspace, replaceWorkspace, writeFavorites } from '../hooks/workspaces/files.ts'
-import type { WorkspaceFile } from '../types'
+import { freeId, load, patchWorkspace } from '../hooks/workspaces/files.ts'
 import { DIR, HOME, memDisk } from './fakes.ts'
 
 const FAVS = `${HOME}/.glyphh/favorites.json`
-const blank = (name: string): WorkspaceFile => ({ name, folder: null, cols: 1, rows: 1, col_widths: [1], row_heights: [1], cells: [] })
 const names = async (w: ReturnType<typeof memDisk>) => (await load(w.disk)).entries.map(e => e.file.name)
 
 describe('first run', () => {
@@ -87,41 +85,15 @@ describe('writing workspaces', () => {
     expect(await names(w)).toEqual(['C', 'A', 'B'])
   })
 
-  test('add takes a free slug, last in order', async () => {
-    const w = memDisk()
-    await load(w.disk)
-    w.files.set(`${DIR}/research.json`, JSON.stringify({ name: 'Old research', cols: 1, rows: 1, cells: [] }))
-    await addWorkspace(w.disk, blank('Research'))
-    expect(w.json('research-2').name).toBe('Research')
-    expect(w.order.now().at(-1)).toBe('research-2')
-  })
-
-  test('replace: a new name moves the file and keeps its place', async () => {
-    const w = memDisk()
-    await load(w.disk)
-    await replaceWorkspace(w.disk, 'Comms', { ...blank('Mail'), folder: '/m' })
-    expect(w.files.has(`${DIR}/comms.json`)).toBe(false)
-    expect(w.json('mail')).toMatchObject({ name: 'Mail', folder: '/m' })
-    expect(await names(w)).toEqual(['Mail', 'IDE', 'Browse', 'Files'])
-    await replaceWorkspace(w.disk, 'IDE', blank('ide'))
-    expect(w.json('ide').name).toBe('ide')
-    await expect(replaceWorkspace(w.disk, 'Nope', blank('X'))).rejects.toThrow('There is no workspace "Nope".')
-  })
-
-  test('patch and delete', async () => {
+  test('patch changes one file in place; a workspace gone says so', async () => {
     const w = memDisk()
     await load(w.disk)
     await patchWorkspace(w.disk, 'Files', f => ({ ...f, folder: '/code' }))
     expect(w.json('files').folder).toBe('/code')
-    await deleteWorkspace(w.disk, 'Files')
-    expect(w.files.has(`${DIR}/files.json`)).toBe(false)
-    expect(w.order.now()).toEqual(['comms', 'ide', 'browse'])
+    await expect(patchWorkspace(w.disk, 'Nope', f => f)).rejects.toThrow('There is no workspace "Nope".')
   })
 
-  test('favourites are written whole; ids come from names and never repeat', async () => {
-    const w = memDisk()
-    await writeFavorites(w.disk, [{ id: 'a', name: 'A', url: 'https://a.com' }])
-    expect(JSON.parse(w.files.get(FAVS)!)).toEqual({ favorites: [{ id: 'a', name: 'A', url: 'https://a.com' }] })
+  test('ids come from names and never repeat', () => {
     expect(freeId('Gmail', [{ id: 'gmail', name: 'Gmail', url: '' }])).toBe('gmail-2')
     expect(freeId('***', [])).toBe('page')
   })

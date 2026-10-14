@@ -56,7 +56,7 @@ the page for you.
 | `/dip 2`, `/dip Comms`, `/dip co` | Switches to a workspace by number, by name, or by the first letters of its name |
 | `/dip back` | Returns to the workspace before; run it again to go back and forth |
 | `/stream [workspace]` | Opens the layout page in the Browser pane |
-| `/workspaces` | Opens the Workspaces pane, where you manage workspaces and favourites |
+| `/workspaces` | Opens the Workspaces pane: your workspaces, and the way to the editor |
 | `/workspaces key <licence>` | Unlocks Workspaces with a licence key |
 | `/files` | Shows the Files pane |
 | `/diff` | Shows the Changes pane |
@@ -89,25 +89,38 @@ reads as untrusted content.
 
 `/workspaces` lists your workspaces. Each one shows its shape, for example
 "3 cells · Gmail, Slack, Calendar". **Open** switches to it, the same as
-`/dip`, and **Edit** changes it. **New workspace** makes one.
+`/dip`. **Edit in layout page** opens the layout page on its workspace
+editor.
 
+## The workspace editor
+
+In the layout page, **Workspaces…** in the top bar opens the editor.
+
+**Your workspaces** shows each workspace as a card with a small picture of
+its grid. Click **+ Add** to make a workspace, or click a card to edit one.
 A workspace's page has:
 
-- **Name** and **Folder**: the folder is an absolute path. Leave it blank
-  to keep the session where it is.
-- **Starter layout**: Blank, Email (Gmail beside Calendar) or Dev
-  (Terminal, Files, Changes)
-- **Columns**, **Rows**, and **Column widths** and **Row heights** as
-  percentages: "70 30". Leave a size blank to split it evenly.
-- **Cells**: for each cell, pick Empty, one of your favourites, or Files,
-  Changes or Terminal. A cell can be more than one row tall. A favourite
-  can appear only once in a workspace.
-- **Save**, **Cancel** and **Delete** (Delete asks first)
+- **Name**
+- **Grid**: choose **Cols** × **Rows** (up to 25 each). Click a cell to
+  select it, then choose what it shows: Empty, Files, Changes, Terminal, or
+  one of your favourites. **→ Merge** joins the selected cell with the cell
+  to its right, **↓ Merge** joins it with the cell below, and **Split**
+  breaks a merged cell back into single cells.
+- **Working folder**: the folder the session moves to. Leave it empty to
+  keep the current folder.
+- **Cell setup**: which favourite each web cell shows. A favourite can
+  appear only once in a workspace.
+- **Save**, **Cancel**, **Delete** (Delete asks first), and **Open
+  workspace**
 
-**Favourites** lists your pages and the workspaces that show each one. You
-can add a favourite (a name and a web address), rename one or change its
-address, and the workspaces that show it keep working. You can't delete a
-favourite while a workspace still shows it; Workspaces tells you which one.
+**Favourites** lists your pages and the workspaces that show each one. Add
+a favourite with a name and a web address, or click one to rename it or
+change its address; the workspaces that show it keep working. You can't
+delete a favourite while a workspace still shows it; Workspaces tells you
+which one.
+
+The editor saves to the files in `~/.glyphh`, and Workspaces reads them
+again straight away.
 
 ## Trial and unlock
 
@@ -157,12 +170,13 @@ A workspace file looks like this:
 ```
 
 `panel` is `browser` (with the favourite's id), `files`, `changes` or
-`terminal`.
+`terminal`. A merged cell has `col_span` or `row_span`, or both.
 
 ## Security
 
 - The layout page is served only on `127.0.0.1`, on a random port. Every
-  request must carry a random key made for that session. The server
+  request, including the editor's saves, must carry a random key made for
+  that session, and the server checks each save before it writes it. The server
   refuses any other host name or origin, and the page can't be framed by
   another site.
 - The session key is never written to a file or a log. The page is opened

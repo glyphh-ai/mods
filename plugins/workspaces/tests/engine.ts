@@ -51,7 +51,11 @@ export type WorldOptions = {
 /** The layout page's helper as the mod sees it: what it was sent, and a way to make it speak. */
 export type FakeHelper = {
   started: string[][]
-  layouts: { layouts: { name: string; cells: { page?: string }[] }[]; active: string }[]
+  layouts: { layouts: { name: string; cells: { page?: string }[] }[]; active: string; library: { workspaces: { slug: string }[]; favorites: unknown[] } }[]
+  /** The editor views the page was asked to show. */
+  shown: string[]
+  /** The environment the helper was started with. */
+  env: Record<string, string>[]
   /** Pages listening for updates: 0 until the page is open. */
   open: number
   say(line: object): void
@@ -82,6 +86,8 @@ export function world(on: On, options: WorldOptions = {}) {
   const helper: FakeHelper = {
     started: [],
     layouts: [],
+    shown: [],
+    env: [],
     open: 0,
     say: line => {
       queue.push(`${JSON.stringify(line)}\n`)
@@ -144,6 +150,7 @@ export function world(on: On, options: WorldOptions = {}) {
   })
   on('process.spawn', async function* (_$, e) {
     helper.started.push([...e.argv])
+    helper.env.push({ ...(e.env ?? {}) })
     if (options.helperFails) {
       yield { stream: 'stderr' as const, text: options.helperFails }
       return { value: { code: 1, signal: null } }
@@ -167,6 +174,10 @@ export function world(on: On, options: WorldOptions = {}) {
       return ok({})
     }
     if (url.pathname === '/api/key') return ok({ key: 'once' })
+    if (url.pathname === '/api/show') {
+      helper.shown.push(JSON.parse(String(e.init?.body)).view)
+      return ok({})
+    }
     if (url.pathname === '/api/state') return ok({ open: helper.open, pages: [{ cell: 'gmail', url: 'https://mail.google.com/mail', title: 'Inbox' }] })
     if (url.pathname === '/api/text') return ok({ cell: url.searchParams.get('cell'), text: 'Inbox (3)' })
     return { value: { ok: false, status: 404, headers: {}, text: '' } }

@@ -128,6 +128,28 @@ describe('/stream and the layout page', () => {
     expect(await run('dip', 'back')).toStartWith('→ Comms')
   })
 
+  test("the editor's saves are read again and sent back to the page; a rename keeps its place and follows the open workspace", async ($, on) => {
+    const { run, helper, files, clock } = await started($, on)
+    await run('dip', 'Comms')
+    files.set(`${DIR}/mail.json`, files.get(`${DIR}/comms.json`)!.replace('"Comms"', '"Mail"'))
+    files.delete(`${DIR}/comms.json`)
+    helper.say({ t: 'library', renamed: { from: 'comms', to: 'mail', name: 'Mail', was: 'Comms' } })
+    await clock.settle()
+    expect(await run('dip')).toBe('Workspaces: 1 Mail · 2 IDE · 3 Browse · 4 Files')
+    expect(helper.layouts.at(-1)?.active).toBe('Mail')
+    expect(helper.layouts.at(-1)?.library.workspaces.map(w => w.slug)).toEqual(['mail', 'ide', 'browse', 'files'])
+    files.delete(`${DIR}/files.json`)
+    helper.say({ t: 'library' })
+    await clock.settle()
+    expect(await run('dip')).toBe('Workspaces: 1 Mail · 2 IDE · 3 Browse')
+  })
+
+  test('the helper is told where ~/.glyphh is', async ($, on) => {
+    const { run, helper } = await started($, on)
+    await run('stream')
+    expect(helper.env[0]).toMatchObject({ WORKSPACES_CHROME: CHROME, WORKSPACES_LIBRARY: '/home/t/.glyphh' })
+  })
+
   test('a shape for a workspace gone from disk is said, not thrown', async ($, on) => {
     const { run, helper, toasts, clock } = await started($, on)
     await run('stream', 'Comms')

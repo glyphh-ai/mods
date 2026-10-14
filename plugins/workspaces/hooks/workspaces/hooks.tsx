@@ -1,22 +1,19 @@
 // Workspaces, wired to the engine: the one file of this module that holds `$`
 // and the workspaces' state (the engine follows `$` and atoms only within the
-// file whose hook received them), handing the rest Disk, App, Ctx and
-// Switcher closures. It runs the layout page's helper (helper/viewer.mjs).
+// file whose hook received them), handing the rest Disk, App and Switcher
+// closures. It runs the layout page's helper (helper/viewer.mjs), whose
+// workspace editor writes ~/.glyphh; the mod reads it again when told.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
-import type { Entry, Favorite, Note, Requirements, View } from '../../types'
+import type { Entry, Favorite, Note, Requirements } from '../../types'
 import { INITIAL, refusal } from '../licence/access.ts'
-import * as A from './actions.ts'
 import { findFile, openPage, showFile, togglePane, type App, type MenuPane } from './desktop.ts'
 import { findWorkspace, listText } from './dip.ts'
-import { FavoriteForm, FavoriteList } from './favorites.tsx'
-import { patchWorkspace, type Disk } from './files.ts'
-import { WorkspaceForm } from './form.tsx'
+import { load, patchWorkspace, type Disk } from './files.ts'
 import { WorkspaceList } from './list.tsx'
 import { findChrome, findNode, missingText, type Probe } from './requirements.ts'
-import { showLayout, switchTo, type Switcher } from './stream.ts'
-import type { Ui } from './ui.ts'
+import { push, showLayout, switchTo, type Switcher } from './stream.ts'
 import { lineReader, linkTo, parseLine, scrub, type Link, type ViewerMessage } from './viewer.ts'
 
 const PANE = 'workspaces'
@@ -29,7 +26,6 @@ const favorites = atom({ plugin: 'workspaces', key: 'favorites' } as const, [] a
 const active = atom({ plugin: 'workspaces', key: 'active' } as const, null as string | null)
 const previous = atom({ plugin: 'workspaces', key: 'previous' } as const, null as string | null)
 const note = atom({ plugin: 'workspaces', key: 'note' } as const, null as Note | null)
-const view = atom({ plugin: 'workspaces', key: 'view' } as const, { page: 'list' } as View)
 const requirements = atom({ plugin: 'workspaces', key: 'requirements' } as const, null as Requirements | null)
 const layoutTab = atom({ plugin: 'workspaces', key: 'layoutTab' } as const, null as string | null)
 
@@ -63,7 +59,6 @@ function disk($: EngineInterface): Disk {
     write: (path, text) => $.fs.write(path, text),
     exists: path => $.fs.exists(path),
     list: async dir => (await $.fs.list(dir)).filter(f => f.kind === 'file').map(f => f.name),
-    remove: path => run(['/bin/rm', '-f', path], `remove ${path}`),
     rename: (from, to) => run(['/bin/mv', '-f', from, to], `write ${to}`),
     order: {
       get: async () => {
@@ -98,26 +93,20 @@ function probe($: EngineInterface): Probe {
   }
 }
 
-function ctx($: EngineInterface): A.Ctx {
+/** Reads ~/.glyphh again into the session. */
+async function reload($: EngineInterface): Promise<void> {
+  const library = await load(disk($))
+  await update($, entries, () => library.entries)
+  await update($, favorites, () => library.favorites)
+}
+
+function switcher($: EngineInterface): Switcher {
   return {
-    disk: disk($),
+    app: app($),
     entries: { get: () => read($, entries), set: async fn => void (await update($, entries, fn)) },
     favorites: { get: () => read($, favorites), set: async fn => void (await update($, favorites, fn)) },
     active: { get: () => read($, active), set: async fn => void (await update($, active, fn)) },
     previous: { get: () => read($, previous), set: async fn => void (await update($, previous, fn)) },
-    view: { get: () => read($, view), set: async fn => void (await update($, view, fn)) },
-    note: { get: () => read($, note), set: async fn => void (await update($, note, fn)) },
-  }
-}
-
-function switcher($: EngineInterface): Switcher {
-  const c = ctx($)
-  return {
-    app: app($),
-    entries: c.entries,
-    favorites: c.favorites,
-    active: c.active,
-    previous: c.previous,
     layoutTab: { get: () => read($, layoutTab), set: async fn => void (await update($, layoutTab, fn)) },
     missing: async () => missingText(await read($, requirements)),
     link: () => startHelper($),
@@ -125,7 +114,8 @@ function switcher($: EngineInterface): Switcher {
   }
 }
 
-/** What the helper says: a layout's shape dragged, or a layout picked in the page. */
+/** What the helper says: a layout picked in the page, a layout's shape
+ *  dragged, or the editor's writes to ~/.glyphh (a rename keeps its place). */
 async function onHelper($: EngineInterface, m: Exclude<ViewerMessage, { t: 'ready' }>): Promise<void> {
   if (m.t === 'active') {
     const from = await read($, active)
@@ -134,9 +124,17 @@ async function onHelper($: EngineInterface, m: Exclude<ViewerMessage, { t: 'read
     await update($, active, () => m.name)
     return
   }
-  const c = ctx($)
-  await patchWorkspace(c.disk, m.name, f => ({ ...f, col_widths: m.colWidths, row_heights: m.rowHeights }))
-  await A.reload(c)
+  if (m.t === 'layout') await patchWorkspace(disk($), m.name, f => ({ ...f, col_widths: m.colWidths, row_heights: m.rowHeights }))
+  else if (m.renamed) {
+    const { from, to, name, was } = m.renamed
+    const order = await disk($).order.get()
+    await $.store.set(ORDER_KEY, order.map(s => (s === from ? to : s)))
+    const follow = (n: string | null) => (n === was ? name : n)
+    await update($, active, follow)
+    await update($, previous, follow)
+  }
+  await reload($)
+  if (helper) await push(switcher($), helper.link, (await read($, active)) ?? '')
 }
 
 /** The layout page's helper, started once; it lives with this module. */
@@ -145,12 +143,13 @@ function startHelper($: EngineInterface): Promise<Link> {
   starting ??= new Promise<Link>((resolve, reject) => {
     void (async () => {
       const req = await read($, requirements)
+      const home = await $.env.get('HOME')
       let token: string | undefined
       let error = ''
       try {
         const child = $.process.spawn({
           argv: [req?.node ?? 'node', `${$.plugin.root}/helper/viewer.mjs`],
-          env: { WORKSPACES_CHROME: req?.chrome ?? '' },
+          env: { WORKSPACES_CHROME: req?.chrome ?? '', WORKSPACES_LIBRARY: home ? `${home.replace(/\/$/, '')}/.glyphh` : '' },
         })
         const lines = lineReader()
         for await (const { stream, text } of child) {
@@ -190,7 +189,7 @@ const short = (err: unknown) => String(err).replace(/^(Hooks)?Error: /, '').slic
 async function registerCommands($: EngineInterface) {
   await $.command.register({
     name: 'workspaces',
-    description: 'Manage your workspaces and favourites; key <licence> unlocks Workspaces with a licence key',
+    description: 'Open a workspace, or its editor in the layout page; key <licence> unlocks Workspaces with a licence key',
     argumentHint: '[key <licence>]',
   })
   await $.command.register({ name: 'dip', description: 'Switch to a workspace: /dip 1, /dip Comms, /dip back', argumentHint: '<number | name | back>' })
@@ -242,7 +241,7 @@ async function dip($: EngineInterface, target: Entry): Promise<string> {
 export function workspaces(on: On) {
   on('session.start', async ($, e, next) => {
     try {
-      await A.reload(ctx($))
+      await reload($)
     } catch (err) {
       await update($, note, (): Note => ({ text: short(err), isError: true }))
     }
@@ -255,7 +254,6 @@ export function workspaces(on: On) {
 
   on('command.run', { command: 'workspaces' }, async ($, e) => {
     if (e.args.trim()) return { text: 'Usage: /workspaces [key <licence>]' }
-    await update($, view, (): View => ({ page: 'list' }))
     const opened = await $.ui.open({ id: PANE, title: 'Workspaces' })
     const missing = missingText(await read($, requirements))
     const said = opened.isPlaced ? 'Workspaces open.' : `The Workspaces pane could not be placed: ${opened.reason}`
@@ -318,50 +316,27 @@ export function workspaces(on: On) {
   })
 
   on('ui.render', { component: 'Pane', requestId: 'workspaces' }, async ($, e) => {
-    if (e.surface === 'mobile') {
-      const { Text } = $.ui.resolve(e as typeof e & { surface: 'mobile' })
-      return <Text dimColor>Workspaces are managed on the desktop or in a terminal.</Text>
-    }
-    const ui: Ui = $.ui.resolve(e as typeof e & { surface: 'desktop' })
-    const c = ctx($)
-    const now = await read($, view)
-    const data = { entries: await read($, entries), favorites: await read($, favorites), note: await read($, note) }
-    switch (now.page) {
-      case 'edit':
-        return WorkspaceForm(ui, now.draft, data.favorites, {
-          change: fn => void A.changeDraft(c, fn),
-          save: () => void A.saveDraft(c),
-          cancel: () => void A.showList(c),
-          remove: () => void A.deleteDraft(c),
-        })
-      case 'favorites':
-        return FavoriteList(ui, { add: () => void A.newFavorite(c), edit: id => void A.editFavorite(c, id), back: () => void A.showList(c) }, data)
-      case 'favorite':
-        return FavoriteForm(ui, now.draft, {
-          change: fn => void A.changeFavorite(c, fn),
-          save: () => void A.saveFavorite(c),
-          cancel: () => void A.showFavorites(c),
-          remove: () => void A.deleteFavorite(c),
-        })
-      case 'list':
-        return WorkspaceList(
-          ui,
-          {
-            open: name => {
-              const target = data.entries.find(x => x.file.name === name)
-              if (!target) return
-              void (async () => {
-                const no = await refused($)
-                const said = no ?? ((await isDesktop($)) ? await dip($, target) : DESKTOP_ONLY)
-                await update($, note, (): Note => ({ text: said, isError: no !== null }))
-              })()
-            },
-            edit: name => void A.editWorkspace(c, name),
-            add: () => void A.newWorkspace(c),
-            favorites: () => void A.showFavorites(c),
-          },
-          { ...data, active: await read($, active), missing: missingText(await read($, requirements)) },
-        )
-    }
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const all = await read($, entries)
+    const say = (text: string, isError: boolean) => update($, note, (): Note => ({ text, isError }))
+    /** A launch: refused after the trial or outside the desktop app; else `go`'s line. */
+    const launch = (go: () => Promise<string>) =>
+      void (async () => {
+        const no = await refused($)
+        if (no) return say(no, true)
+        if (!(await isDesktop($))) return say(DESKTOP_ONLY, true)
+        await say(await go(), false)
+      })()
+    return WorkspaceList(
+      { Box, Text, Button },
+      {
+        open: name => {
+          const target = all.find(x => x.file.name === name)
+          if (target) launch(() => dip($, target))
+        },
+        edit: () => launch(async () => `Editor: ${await showLayout(switcher($), (await read($, active)) ?? all[0]?.file.name ?? '', 'workspaces')}`),
+      },
+      { entries: all, favorites: await read($, favorites), note: await read($, note), active: await read($, active), missing: missingText(await read($, requirements)) },
+    )
   })
 }

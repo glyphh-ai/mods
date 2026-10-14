@@ -1,12 +1,13 @@
 // A workspace file and its grid: names, addresses, the grid a file without
 // one gets, and a file read from disk made whole (earlier versions included).
-import type { FileCell, Panel, WorkspaceFile } from '../../types'
+import type { Favorite, FileCell, Panel, WorkspaceFile } from '../../types'
 
 /** The app panes a cell can point at, as the pane lists them. */
-export const PANE_PANELS = ['files', 'changes', 'terminal'] as const satisfies readonly Panel[]
+const PANE_PANELS = ['files', 'changes', 'terminal'] as const satisfies readonly Panel[]
 export const PANEL_LABELS: Record<Panel, string> = { browser: 'Web page', files: 'Files', changes: 'Changes', terminal: 'Terminal' }
 
-export const MAX_GRID = 4
+/** Grids go up to 25×25, as the layout page's editor makes them. */
+export const MAX_GRID = 25
 
 /** Earlier versions' cell kinds, as this one reads them; null drops the cell. */
 const LEGACY_PANELS: Record<string, Panel | null> = {
@@ -65,7 +66,11 @@ export function defaultGrid(items: Content[]): Grid {
 }
 
 /** The slots a cell covers, as "col,row". */
-const slotsOf = (c: FileCell) => Array.from({ length: c.row_span ?? 1 }, (_, i) => `${c.col},${c.row + i}`)
+function slotsOf(c: FileCell): string[] {
+  const out: string[] = []
+  for (let r = c.row; r < c.row + (c.row_span ?? 1); r++) for (let k = c.col; k < c.col + (c.col_span ?? 1); k++) out.push(`${k},${r}`)
+  return out
+}
 
 /** Cells that fit the grid, spans cut to it, none on top of another. */
 export function fitCells(cells: FileCell[], cols: number, rows: number): FileCell[] {
@@ -74,9 +79,12 @@ export function fitCells(cells: FileCell[], cols: number, rows: number): FileCel
   for (const c of cells) {
     if (c.col < 0 || c.col >= cols || c.row < 0 || c.row >= rows) continue
     const span = Math.max(1, Math.min(rows - c.row, c.row_span ?? 1))
+    const wide = Math.max(1, Math.min(cols - c.col, c.col_span ?? 1))
     const cell: FileCell = { ...c }
     if (span > 1) cell.row_span = span
     else delete cell.row_span
+    if (wide > 1) cell.col_span = wide
+    else delete cell.col_span
     const slots = slotsOf(cell)
     if (slots.some(s => taken.has(s))) continue
     for (const s of slots) taken.add(s)
@@ -112,6 +120,7 @@ function cellOf(raw: unknown, tabs: ({ url: string; name: string } | null)[], to
   const panel = LEGACY_PANELS[String(c?.panel)]
   if (!c || !panel || typeof c.col !== 'number' || typeof c.row !== 'number') return null
   const cell: FileCell = { panel, col: c.col, row: c.row }
+  if (typeof c.col_span === 'number') cell.col_span = c.col_span
   if (typeof c.row_span === 'number') cell.row_span = c.row_span
   if (panel !== 'browser') return cell
   const tab = typeof c.tab === 'number' ? tabs[c.tab] : null
@@ -150,4 +159,12 @@ export function normalise(raw: unknown, toFavorite: TabToFavorite): { file: Work
   }
   const isLegacy = f.tabs !== undefined || !Array.isArray(f.cells)
   return { file: { name, folder: text(f.folder), ...grid }, isLegacy }
+}
+
+/** A workspace's shape in a line: "3 cells · Gmail, Slack, Calendar". */
+export function summaryOf(file: WorkspaceFile, favorites: Favorite[]): string {
+  const n = file.cells.length
+  if (n === 0) return 'No cells'
+  const names = file.cells.map(c => (c.favorite ? (favorites.find(f => f.id === c.favorite)?.name ?? '?') : PANEL_LABELS[c.panel]))
+  return `${n} cell${n === 1 ? '' : 's'} · ${names.join(', ')}`
 }

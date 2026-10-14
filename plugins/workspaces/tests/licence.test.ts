@@ -28,7 +28,7 @@ describe('licence in the engine', () => {
       const ui = await $.ui.mount({ ...PANE, surface })
       expect(await texts(ui)).toContain('Trial: 1 day left')
       expect(await ui.find({ type: 'Button', key: 'licence-buy' })).toMatchObject({ props: { label: 'Unlock — $5' } })
-      expect(await ui.find({ type: 'Button', key: 'ws-new' })).toBeDefined()
+      expect(await ui.find({ type: 'Button', key: 'ws-edit' })).toBeDefined()
     })
   }
 
@@ -39,7 +39,7 @@ describe('licence in the engine', () => {
     const shown = await texts(ui)
     expect(shown).toContain('Workspaces sets up the Claude desktop app for a kind of work in one command.')
     expect(shown).toContain('The 7-day trial has ended. Unlock Workspaces for $5, once.')
-    expect(await ui.find({ type: 'Button', key: 'ws-new' })).toBeUndefined()
+    expect(await ui.find({ type: 'Button', key: 'ws-edit' })).toBeUndefined()
     expect(await run('dip', 'IDE')).toBe(ENDED)
     expect(await run('dip')).toBe(ENDED)
     expect(await run('files')).toBe(ENDED)

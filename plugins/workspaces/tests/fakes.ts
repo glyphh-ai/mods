@@ -35,7 +35,6 @@ export function memDisk(home: string | null = HOME) {
     exists: async p => files.has(p) || [...files.keys()].some(k => k.startsWith(`${p}/`)),
     list: async dir =>
       [...files.keys()].filter(p => p.startsWith(`${dir}/`) && !p.slice(dir.length + 1).includes('/')).map(p => p.slice(dir.length + 1)),
-    remove: async p => void files.delete(p),
     rename: async (from, to) => {
       files.set(to, files.get(from)!)
       files.delete(from)

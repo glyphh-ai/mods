@@ -10,7 +10,7 @@ describe('the layout page', () => {
   test('one live page per favourite: the same favourite in two workspaces is the same page', () => {
     const layouts = layoutsFor(
       [
-        entry('Comms', [{ panel: 'browser', col: 0, row: 0, favorite: 'gmail' }, { panel: 'terminal', col: 1, row: 0, row_span: 1 }]),
+        entry('Comms', [{ panel: 'browser', col: 0, row: 0, favorite: 'gmail' }, { panel: 'terminal', col: 1, row: 0, row_span: 1, col_span: 1 }]),
         entry('Mail', [{ panel: 'browser', col: 1, row: 0, favorite: 'gmail' }, { panel: 'browser', col: 0, row: 0, favorite: 'gone' }]),
       ],
       DEFAULT_FAVORITES,
@@ -22,17 +22,20 @@ describe('the layout page', () => {
       colWidths: [0.5, 0.5],
       rowHeights: [1],
       cells: [
-        { panel: 'browser', col: 0, row: 0, rowSpan: 1, page: 'gmail', url: 'https://mail.google.com', title: 'Gmail' },
-        { panel: 'terminal', col: 1, row: 0, rowSpan: 1 },
+        { panel: 'browser', col: 0, row: 0, colSpan: 1, rowSpan: 1, page: 'gmail', url: 'https://mail.google.com', title: 'Gmail' },
+        { panel: 'terminal', col: 1, row: 0, colSpan: 1, rowSpan: 1 },
       ],
     })
-    expect(layouts[1]?.cells).toEqual([{ panel: 'browser', col: 1, row: 0, rowSpan: 1, page: 'gmail', url: 'https://mail.google.com', title: 'Gmail' }])
+    expect(layouts[1]?.cells).toEqual([{ panel: 'browser', col: 1, row: 0, colSpan: 1, rowSpan: 1, page: 'gmail', url: 'https://mail.google.com', title: 'Gmail' }])
   })
 
   test("the helper's lines", () => {
     expect(parseLine('{"t":"ready","port":5,"token":"x"}')).toEqual({ t: 'ready', port: 5, token: 'x' })
     expect(parseLine('{"t":"layout","name":"A","colWidths":[1],"rowHeights":[1]}')).toEqual({ t: 'layout', name: 'A', colWidths: [1], rowHeights: [1] })
     expect(parseLine('{"t":"active","name":"A"}')).toEqual({ t: 'active', name: 'A' })
+    expect(parseLine('{"t":"library"}')).toEqual({ t: 'library' })
+    expect(parseLine('{"t":"library","renamed":{"from":"a","to":"b","name":"B","was":"A"}}')).toEqual({ t: 'library', renamed: { from: 'a', to: 'b', name: 'B', was: 'A' } })
+    expect(parseLine('{"t":"library","renamed":{"from":"a"}}')).toEqual({ t: 'library' })
     for (const junk of ['not json', 'null', '{"t":"ready","port":"5"}', '{"t":"layout","name":"A","colWidths":["x"],"rowHeights":[]}', '{"t":"other"}']) {
       expect(parseLine(junk)).toBeNull()
     }
@@ -52,20 +55,25 @@ describe('the layout page', () => {
       4100,
       'tok',
     )
-    await link.setLayouts([], 'A')
+    await link.setLayouts([], 'A', { workspaces: [], favorites: [] })
     expect(await link.isOpen()).toBe(true)
     expect(await link.pageUrl()).toBe('http://127.0.0.1:4100/?k=k1')
+    expect(await link.pageUrl('workspaces')).toBe('http://127.0.0.1:4100/?k=k1&view=workspaces')
+    await link.show('favorites')
     expect(await link.pages()).toEqual([{ cell: 'gmail', url: 'u', title: 't' }])
     await link.text('a b')
     expect(asked.map(a => `${a.init.method} ${a.url}`)).toEqual([
       'POST http://127.0.0.1:4100/api/layouts',
       'GET http://127.0.0.1:4100/api/state',
       'POST http://127.0.0.1:4100/api/key',
+      'POST http://127.0.0.1:4100/api/key',
+      'POST http://127.0.0.1:4100/api/show',
       'GET http://127.0.0.1:4100/api/state',
       'GET http://127.0.0.1:4100/api/text?cell=a%20b',
     ])
     expect(asked.every(a => a.init.headers['X-Token'] === 'tok')).toBe(true)
-    expect(asked[0]?.init.body).toBe('{"layouts":[],"active":"A"}')
+    expect(asked[0]?.init.body).toBe('{"layouts":[],"active":"A","library":{"workspaces":[],"favorites":[]}}')
+    expect(asked[4]?.init.body).toBe('{"view":"favorites"}')
     ok = false
     await expect(link.isOpen()).rejects.toThrow('the layout page answered /api/state with an error')
   })
