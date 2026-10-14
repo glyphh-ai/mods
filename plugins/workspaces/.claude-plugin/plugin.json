@@ -1,7 +1,7 @@
 {
   "name": "workspaces",
-  "version": "0.1.0",
-  "author": { "name": "Glyphh" },
-  "description": "Layouts of live browsers and files in a pane: drag the grid, switch layouts",
+  "version": "1.0.0",
+  "description": "Switch the Claude desktop app between workspaces: panes, browser tabs and folder in one command",
+  "author": { "name": "Glyphh AI", "url": "https://glyphh.ai" },
   "types": "./types/index.d.ts"
 }
