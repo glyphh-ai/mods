@@ -225,3 +225,9 @@ A workspace file looks like this:
   only `http` and `https` pages, and serves only small images.
 - Workspaces controls its Chrome through a private pipe, not a network
   port, so no other program can take control of the signed-in pages.
+
+## For developers
+
+This mod is built from the private source repository to the Glyphh mod standard
+(`docs/mod-standard.md` there). Its licence code in `hooks/licence/` is a copy of the
+shared module: change the source and sync, never the copy.

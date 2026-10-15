@@ -158,3 +158,9 @@ Code's store for Drips. The fullscreen overlay program is kept in
   plugin (`native/overlay.swift`). It shows one effect, ignores the
   pointer, closes when the effect ends or after its time limit (never more
   than 30 minutes), and quits if Claude Code goes away.
+
+## For developers
+
+This mod is built from the private source repository to the Glyphh mod standard
+(`docs/mod-standard.md` there). Its licence code in `hooks/licence/` is a copy of the
+shared module: change the source and sync, never the copy.
