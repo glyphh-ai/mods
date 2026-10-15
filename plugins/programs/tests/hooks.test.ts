@@ -10,6 +10,7 @@ async function started($: Engine, on: On, account: Account = 'pro', options: Rec
   const w = world(on, account)
   void options
   await startSession($)
+  await clock.advance(1000) // what the start set going in the background (rrotor, the account) has finished
   return { ...w, clock }
 }
 

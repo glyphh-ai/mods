@@ -60,6 +60,7 @@ export function programs_(on: On, options: PluginOptions) {
     void of($)
       .ensure()
       .then(o => (o.ok ? undefined : $.ui.log(`Programs: ${o.text}`)))
+      .catch(() => undefined) // the session ended while rrotor was starting
       .finally(() => void watch($).catch(() => undefined))
     watching?.cancel()
     watching = $.clock.every(STATUS_EVERY_MS, () => void watch($).catch(() => undefined))

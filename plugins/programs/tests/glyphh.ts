@@ -1,6 +1,6 @@
 // The Glyphh account beneath the mod, in memory: ~/.glyphh's install.json and
 // license.json, this Mac (ioreg, scutil), and the Glyphh server's device flow,
-// licence, plans, billing and sign-out, answering as the server does.
+// licence, plans, add-ons, billing and sign-out, answering as the server does.
 import type { ProcessRunResult } from 'claude-code'
 
 import { FREE, FREE_EXPIRED, INSTALL, NONE, PRO, PRO_EXPIRED } from './licences.ts'
@@ -31,6 +31,28 @@ export const PLANS = JSON.stringify([
   { name: 'Pro', version: 1, seat_price_cents: 900, limits: { members: 10, installs: 3, workspaces: null }, mods: { workspaces: { limits: { workspaces: null, favorites: null, stream: 1 } }, programs: { limits: { programs: null, runs_per_day: null } } } },
 ])
 
+/** GET /v1/addons for a Free org: Drips and Programs, each on Pro and Team, per seat. */
+export const addonOf = (mod: string, over: Record<string, unknown> = {}) => ({
+  mod,
+  name: mod[0]!.toUpperCase() + mod.slice(1),
+  description: `The ${mod} mod.`,
+  version: 1,
+  price_cents: mod === 'drips' ? 200 : 400,
+  per_seat: true,
+  monthly_cents: mod === 'drips' ? 200 : 400,
+  plans: ['Pro', 'Team'],
+  free: false,
+  allowed: false,
+  limits: null,
+  added: false,
+  quantity: null,
+  ...over,
+})
+export const ADDONS = [addonOf('drips'), addonOf('programs')]
+
+/** POST /v1/billing/addons/preview's answer for Drips on a subscribed org. */
+export const PREVIEW = { mod: 'drips', action: 'add', prorated_cents: 87, currency: 'usd', monthly_cents: 200, proration_date: 1_792_000_000 }
+
 export type Answer = { status: number; body: unknown }
 const res = (status: number, body: unknown) => ({ ok: status >= 200 && status < 300, status, headers: {}, text: typeof body === 'string' ? body : JSON.stringify(body) })
 export const refusalBody = (code: string, message: string, detail: Record<string, unknown> = {}) => ({ error: { code, message, trace_id: 't-1', ...detail } })
@@ -50,6 +72,12 @@ export function fakeServer(account: Account) {
     tokens: [] as Answer[],
     checkout: [] as Answer[],
     portal: { status: 200, body: { url: 'https://billing.stripe.com/p/session/test_1' } } as Answer,
+    addons: { status: 200, body: ADDONS } as Answer,
+    /** POST /v1/billing/addons/preview's and POST /v1/billing/addons's answers in turn. */
+    previews: [] as Answer[],
+    adds: [] as Answer[],
+    /** GET /v1/org: the org's seats; none, a 404. */
+    org: null as { seats: number; seats_taken: number } | null,
     offline: false,
   }
   const asked = (path: string) => s.requests.filter(r => r.path === path)
@@ -73,6 +101,16 @@ export function fakeServer(account: Account) {
       return res(next.status, next.body)
     }
     if (path === '/v1/billing/portal') return res(s.portal.status, s.portal.body)
+    if (path === '/v1/addons') return res(s.addons.status, s.addons.body)
+    if (path === '/v1/billing/addons/preview') {
+      const next = s.previews.shift() ?? { status: 409, body: refusalBody('E_CONFLICT', "Your org isn't subscribed: start with checkout.", { reason: 'not_subscribed' }) }
+      return res(next.status, next.body)
+    }
+    if (path === '/v1/billing/addons' && method === 'POST') {
+      const next = s.adds.shift() ?? { status: 200, body: [addonOf('drips', { allowed: true, added: true, quantity: 1 }), addonOf('programs', { allowed: true })] }
+      return res(next.status, next.body)
+    }
+    if (path === '/v1/org' && s.org) return res(200, { id: 'o', name: 'Org', admin_user_id: 'u', plan: {}, members: 1, billing_status: 'none', ...s.org })
     return res(404, refusalBody('E_NOT_FOUND', 'Not Found'))
   }
   return Object.assign(s, { asked, handle })

@@ -158,7 +158,7 @@ describe('the licence from the server', () => {
   })
 
   test('the plans: the server\'s map of limits, or its list of slugs (included, limits unknown); junk is none', () => {
-    expect(parsePlans(PLANS)[1]).toEqual({ name: 'Pro', mods: { workspaces: { workspaces: null, favorites: null, stream: 1 }, programs: { programs: null, runs_per_day: null } } })
+    expect(parsePlans(PLANS)[1]).toEqual({ name: 'Pro', price: 900, mods: { workspaces: { workspaces: null, favorites: null, stream: 1 }, programs: { programs: null, runs_per_day: null } } })
     expect(parsePlans(JSON.stringify([{ name: 'Free', mods: ['programs', 3] }, { nope: 1 }, null]))).toEqual([{ name: 'Free', mods: { programs: {} } }])
     expect(parsePlans(JSON.stringify([{ name: 'Free' }]))).toEqual([{ name: 'Free', mods: {} }])
     expect(parsePlans('{}')).toEqual([])
@@ -322,36 +322,22 @@ describe('signing out', () => {
 })
 
 describe('Upgrade and Manage billing', () => {
-  test("Upgrade: checkout for the next plan, opened; the licence asked until the plan changes", async () => {
-    const { d, state, server, browsed, toasts, w } = fresh('free')
+  // Programs is an add-on: these fixtures' licences leave it out, so Upgrade adds it (checkout with the plan on Free).
+  test('Upgrade adds Programs: checkout with the add-on, opened; the licence asked until it is in it', async () => {
+    const { d, state, server, browsed } = fresh('free')
     await load(d)
     expect(await upgrade(d)).toBe('Finish checkout (opened in the browser pane): Programs updates on its own.')
-    expect(server.asked('/v1/plans')).toHaveLength(1)
-    expect(server.asked('/v1/billing/checkout')[0]).toMatchObject({ method: 'POST', headers: { Authorization: BEARER }, body: { plan: 'Pro', seats: 1 } })
+    expect(server.asked('/v1/billing/checkout')[0]).toMatchObject({ method: 'POST', headers: { Authorization: BEARER }, body: { addons: ['programs'] } })
     expect(browsed).toEqual(['https://checkout.stripe.com/c/pay/cs_test_1'])
-    expect(state().upgrading).toEqual({ plan: 'Free' })
-    server.licence = FREE
-    await w.advance(5000)
-    expect(state().upgrading).not.toBeNull()
-    server.licence = PRO
-    await w.advance(5000)
-    expect(state()).toMatchObject({ upgrading: null, licence: { plan: 'Pro' } })
-    expect(toasts).toContain('Glyphh: you are on the Pro plan now.')
+    expect(state().upgrading).toEqual({ plan: 'Free', mod: 'programs' })
   })
 
-  test('Upgrade at a limit goes to the plan that lifts it', async () => {
-    const { d, server } = fresh('free')
-    await load(d)
-    await upgrade(d, 'programs')
-    expect(server.asked('/v1/billing/checkout')[0]!.body).toEqual({ plan: 'Pro', seats: 1 })
-  })
-
-  test('no plan change in 15 minutes: the wait ends and says so', async () => {
+  test('no add-on in 15 minutes: the wait ends and says so', async () => {
     const { d, state, w } = fresh('free')
     await load(d)
     await upgrade(d)
     await w.advance(15 * 60_000)
-    expect(state()).toMatchObject({ upgrading: null, note: 'No plan change seen yet. Your plan updates here once checkout finishes.' })
+    expect(state()).toMatchObject({ upgrading: null, note: 'Programs is not in your plan yet. It opens here once checkout finishes.' })
   })
 
   test("checkout counts the org's seats: a refusal naming them is asked again with that many", async () => {
@@ -362,31 +348,17 @@ describe('Upgrade and Manage billing', () => {
     expect(server.asked('/v1/billing/checkout').map(r => (r.body as { seats: number }).seats)).toEqual([1, 3])
   })
 
-  test('an org already subscribed changes plan in the billing page', async () => {
-    const { d, browsed, state, server } = fresh('free')
-    await load(d)
-    server.checkout.push({ status: 409, body: refusalBody('E_CONFLICT', 'Your org is already subscribed: change plan or seats instead.', { reason: 'subscribed' }) })
-    expect(await upgrade(d)).toBe('Change to Pro in the billing page (opened in the browser pane): Programs updates on its own.')
-    expect(browsed).toEqual(['https://billing.stripe.com/p/session/test_1'])
-    expect(state().upgrading).toEqual({ plan: 'Free' })
-  })
-
-  test("only the org's admin may: said; other refusals say the server's words", async () => {
+  test("only the org's admin adds mods: said; other refusals say the server's words", async () => {
     const { d, server, state } = fresh('free')
     await load(d)
     server.checkout.push({ status: 403, body: refusalBody('E_FORBIDDEN', 'Admins only.') })
-    expect(await upgrade(d)).toBe(ADMIN_ONLY)
-    expect(state().note).toBe(ADMIN_ONLY)
-    server.checkout.push({ status: 400, body: refusalBody('E_INVALID', "Pro isn't sold through Stripe.") })
-    expect(await upgrade(d)).toBe("Pro isn't sold through Stripe.")
+    expect(await upgrade(d)).toBe("Only your Glyphh org's admin can add mods.")
+    expect(state().note).toBe("Only your Glyphh org's admin can add mods.")
     server.offline = true
     expect(await upgrade(d)).toBe('Could not reach Glyphh. Check your connection and try again.')
   })
 
-  test('on the top plan there is nothing to upgrade to; signed out, Upgrade signs in first', async () => {
-    const pro = fresh('pro')
-    await load(pro.d)
-    expect(await upgrade(pro.d)).toBe('There is no plan above Pro to upgrade to.')
+  test('signed out, Upgrade signs in first', async () => {
     const out = fresh('signed-out')
     expect(await upgrade(out.d)).toContain('Sign in to Glyphh: check the code BCDF-GHJK')
   })

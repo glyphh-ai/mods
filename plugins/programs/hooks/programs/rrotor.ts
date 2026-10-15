@@ -4,12 +4,12 @@ export type Response = { status: number; ok: boolean; text: string }
 export type Fetch = (url: string, init: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<Response>
 
 export class RrotorError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-    readonly status = 0,
-  ) {
+  readonly code: string
+  readonly status: number
+  constructor(code: string, message: string, status = 0) {
     super(message)
+    this.code = code
+    this.status = status
   }
 }
 
