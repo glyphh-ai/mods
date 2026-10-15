@@ -205,9 +205,10 @@ $("count-input").oninput = drawPreview
 
 // ── The account ─────────────────────────────────────────────────────────────
 // The mod tells the page the Glyphh account's state in words: signed out, the
-// plan and its limits, or why Drips is closed. Sign in, Cancel, Upgrade and
-// Manage billing go back to it; the sign-in, the licence and billing stay in
-// the mod. The token never reaches the page.
+// plan and its limits, or why Drips is closed (not in the plan: the add-on's
+// offer, or its price to confirm). Sign in, Cancel, Upgrade, Add it, Confirm
+// and Manage billing go back to it; the sign-in, the licence and billing stay
+// in the mod. The token never reaches the page.
 let licence = null
 const licenceAsk = action => api("/api/licence", { action }).catch(() => {})
 const button = (label, cls, onclick) => Object.assign(el("button", `btn ${cls}`, label), { type: "button", onclick })
@@ -240,7 +241,14 @@ function drawLicence() {
   card.append(el("h1", "", licence.product), ...licence.about.map(line => el("p", "", line)))
   const row = el("div", "row-buttons")
   if (licence.signIn) row.append(...signingIn(licence))
-  else if (licence.kind === "not-in-plan") {
+  else if (licence.kind === "not-in-plan" && licence.quote) {
+    // An add-on's price, previewed: what it costs now and a month, to confirm.
+    card.append(el("p", "ended", licence.quote))
+    row.append(button("Confirm", "primary", () => licenceAsk("confirm")), button("Cancel", "secondary", () => licenceAsk("cancel")))
+  } else if (licence.kind === "not-in-plan" && licence.offer) {
+    card.append(el("p", "ended", licence.offer))
+    row.append(licence.isUpgrading ? button("Cancel", "secondary", () => licenceAsk("cancel")) : button("Add it", "primary", () => licenceAsk("addon")))
+  } else if (licence.kind === "not-in-plan") {
     card.append(el("p", "ended", `Not in your ${licence.plan} plan.`))
     row.append(licence.isUpgrading ? button("Cancel", "secondary", () => licenceAsk("cancel")) : button("Upgrade", "primary", () => licenceAsk("upgrade")))
   } else if (licence.kind === "expired") {

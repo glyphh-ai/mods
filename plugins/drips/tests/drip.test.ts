@@ -5,9 +5,12 @@ import { BUILTIN_EFFECT_LIST } from '../hooks/drips/effects.ts'
 import { PERSISTENT_CAP_MS, PREVIEW_MAX_MS } from '../hooks/drips/manager.ts'
 import { NODE_MISSING } from '../hooks/drips/node.ts'
 import { T0, callTool, endTurn, runCommand, startSession, world, type WorldOptions } from './engine.ts'
+import { PREVIEW } from './glyphh.ts'
+import { PRO } from './licences.ts'
 
 const SIGNED_OUT = 'Sign in to Glyphh to use Drips: /drips signin.'
 const NOT_IN_PLAN = 'Drips is not in your Free plan. Upgrade in /drips.'
+const ADD_IT = 'Drips is an add-on ($2/month per seat on Pro). Add it in /drips.'
 const EXPIRED = 'Your Glyphh licence has expired: /drips signin to sign in again.'
 const SAVES_FULL = 'Your Free plan allows 2 saved drips. Pro lifts it: Upgrade in /drips.'
 
@@ -106,7 +109,7 @@ describe('/drips, the page', () => {
     expect(await run('drips')).toBe('Drips page ✓')
     expect(await run('drips')).toBe('Drips page ✓')
     expect(mcp).toEqual(['Claude_Browser.preview_start', 'Claude_Browser.tabs_select'])
-    expect(await run('drips', 'nonsense')).toBe('Usage: /drips [signin | signout]')
+    expect(await run('drips', 'nonsense')).toBe('Usage: /drips [signin | signout | add [confirm]]')
   })
 
   test("outside the desktop app it opens in the person's browser", async ($, on) => {
@@ -253,11 +256,16 @@ describe('the Glyphh plan', () => {
     expect(page.licence.at(-1)).toMatchObject({ kind: 'signed-out', gate: SIGNED_OUT, plan: null, product: 'Drips', command: '/drips' })
   })
 
-  test('a plan without Drips refuses with Upgrade, offline too (the licence kept still says so)', async ($, on) => {
+  test("a plan without Drips refuses with the add-on's offer pointing at /drips, offline too (the catalog kept still says so)", async ($, on) => {
     const none = await started($, on, {}, { account: 'none' })
-    expect(await none.run('drip', 'confetti')).toBe(NOT_IN_PLAN)
+    expect(await none.run('drip', 'confetti')).toBe(ADD_IT)
     none.server.offline = true
     await startSession($)
+    expect(await none.run('drip', 'confetti')).toBe(ADD_IT)
+  })
+
+  test('a plan without Drips, the add-on catalog unknown: refused with Upgrade', async ($, on) => {
+    const none = await started($, on, {}, { account: 'none', addons: { status: 500, body: 'no' } })
     expect(await none.run('drip', 'confetti')).toBe(NOT_IN_PLAN)
   })
 
@@ -318,6 +326,46 @@ describe('the Glyphh plan', () => {
     expect(free.browsed).toContain('https://checkout.stripe.com/c/pay/cs_test_1')
     expect(free.ran.filter(a => a[0] === 'open')).toEqual([])
     expect(free.page.licence.at(-1)).toMatchObject({ isUpgrading: true })
+  })
+
+  test("not in the plan, the page shows the add-on's offer; Add it on Free opens checkout for Pro with Drips", async ($, on) => {
+    const none = await started($, on, {}, { account: 'none' })
+    await until(none.clock, () => false)
+    await none.run('drips')
+    await none.clock.advance(1000)
+    expect(none.page.licence.at(-1)).toMatchObject({ kind: 'not-in-plan', offer: 'Drips is an add-on ($2/month per seat on Pro).', quote: null })
+    none.page.licenceAsks.push('addon')
+    await none.clock.advance(1000)
+    expect(none.server.asked('/v1/billing/checkout')[0]!.body).toEqual({ plan: 'Pro', seats: 1, addons: ['drips'] })
+    expect(none.browsed).toContain('https://checkout.stripe.com/c/pay/cs_test_1')
+    expect(none.page.licence.at(-1)).toMatchObject({ isUpgrading: true })
+  })
+
+  test("subscribed, the page's Add it shows the price to confirm; Confirm adds it and Drips opens", async ($, on) => {
+    const t = await started($, on, {}, { account: 'none' })
+    await until(t.clock, () => false)
+    await t.run('drips')
+    t.server.previews.push({ status: 200, body: PREVIEW })
+    t.page.licenceAsks.push('addon')
+    await t.clock.advance(1000)
+    expect(t.page.licence.at(-1)).toMatchObject({ quote: 'Add Drips: $0.87 now (prorated), then $2/month.' })
+    t.server.licence = PRO
+    t.page.licenceAsks.push('confirm')
+    await t.clock.advance(1000)
+    expect(t.server.asked('/v1/billing/addons')[0]!.body).toEqual({ mod: 'drips', proration_date: PREVIEW.proration_date })
+    expect(t.page.licence.at(-1)).toMatchObject({ kind: 'active', gate: null, quote: null })
+    expect(await t.run('drip', 'confetti')).toBe('drip: confetti')
+  })
+
+  test('/drips add shows the price, /drips add confirm adds it; a usage line for other words', async ($, on) => {
+    const t = await started($, on, {}, { account: 'none' })
+    await until(t.clock, () => false)
+    expect(await t.run('drips', 'add now')).toBe('Usage: /drips add [confirm]')
+    t.server.previews.push({ status: 200, body: PREVIEW })
+    expect(await t.run('drips', 'add')).toBe('Add Drips: $0.87 now (prorated), then $2/month. Confirm in /drips, or /drips add confirm.')
+    t.server.licence = PRO
+    expect(await t.run('drips', 'add confirm')).toBe('Drips is added: $2/month on your plan.')
+    expect(await t.run('drips', 'add')).toBe('Drips is in your Pro plan already.')
   })
 
   test("signed out, the page's Sign in shows the code there", async ($, on) => {

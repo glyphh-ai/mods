@@ -5,7 +5,7 @@ import type { CommandRunInput, On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
 import { done, mcpText } from './fakes.ts'
-import { accountProcess, fakeServer, seedAccount, SERVER, type Account } from './glyphh.ts'
+import { accountProcess, fakeServer, seedAccount, SERVER, type Account, type Answer } from './glyphh.ts'
 
 export const T0 = Date.parse('2026-10-15T09:00:00Z')
 export const HOME = '/home/t'
@@ -21,6 +21,8 @@ export type WorldOptions = {
   pageNeverOpens?: boolean
   /** The Glyphh account when the session starts: Pro unless a test says. */
   account?: Account
+  /** GET /v1/addons's answer, when not the catalog's. */
+  addons?: Answer
 }
 
 /** One fullscreen overlay process: its request, and whether it was told to end. */
@@ -43,6 +45,7 @@ export function world(on: On, options: WorldOptions = {}) {
   const account = options.account ?? 'pro'
   seedAccount(glyphh, account, T0)
   const server = fakeServer(account)
+  if (options.addons) server.addons = options.addons
   const writes: { argv: string[]; stdin: string }[] = []
   const page = {
     alive: null as { port: string; token: string; version: string } | null,
@@ -54,7 +57,7 @@ export function world(on: On, options: WorldOptions = {}) {
     library: [] as { drips: { name: string; recipe: string }[]; effects: string[]; display: string }[],
     licence: [] as Record<string, unknown>[],
     inbox: [] as object[],
-    /** The page's asks of the account (Sign in, Cancel, Upgrade, Manage billing). */
+    /** The page's asks of the account (Sign in, Cancel, Upgrade, Add it, Confirm, Manage billing). */
     licenceAsks: [] as string[],
     /** The page asking the mod for something. */
     say: (msg: object) => void page.inbox.push(msg),

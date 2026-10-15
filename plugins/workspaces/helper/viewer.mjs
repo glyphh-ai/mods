@@ -89,7 +89,7 @@ const favicons = new Map() // site origin → { type, bytes } | null, for this h
 // and what the page asked of it, for the mod to collect.
 let licenceState = null
 const licenceAsks = []
-const isLicenceAction = a => ["signin", "cancel", "upgrade", "billing"].includes(a) || /^upgrade:[a-z_]{1,40}$/.test(String(a))
+const isLicenceAction = a => ["signin", "cancel", "upgrade", "billing", "addon", "confirm"].includes(a) || /^upgrade:[a-z_]{1,40}$/.test(String(a))
 const LIBRARY = process.env.WORKSPACES_LIBRARY || ""
 
 /** A file written whole or not at all: to a temporary name, then moved. */

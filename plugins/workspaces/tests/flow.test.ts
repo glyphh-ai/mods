@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { billing, cancel, errorOf, load, parseInstall, parseLicenceFile, parsePlans, refresh, refreshDue, signIn, signOut, start, stop, tick, upgrade } from '../hooks/licence/flow.ts'
-import { access } from '../hooks/licence/access.ts'
+import { addOn, billing, cancel, confirmAddOn, errorOf, fetchAddons, load, parseInstall, parseLicenceFile, parsePlans, refresh, refreshDue, signIn, signOut, start, stop, tick, upgrade } from '../hooks/licence/flow.ts'
+import { access, gateOf, pageStatus } from '../hooks/licence/access.ts'
+import { verifyLicence } from '../hooks/licence/verify.ts'
 import { fakeDeps, T0 } from './account-fakes.ts'
 import { INSTALL_PATH, LICENSE_PATH, PLANS, refusalBody, SERVER, TOKEN, installFile, licenceFile } from './glyphh.ts'
-import { FAR, FREE, INSTALL, OTHER_INSTALL, PRO } from './licences.ts'
+import { ADDON_KEY, FAR, FREE, INSTALL, OTHER_INSTALL, PRO, PRO_BASE } from './licences.ts'
 
 const BEARER = `Bearer ${TOKEN}`
 const ADMIN_ONLY = "Only your Glyphh org's admin can change its plan and billing."
@@ -158,7 +159,7 @@ describe('the licence from the server', () => {
   })
 
   test('the plans: the server\'s map of limits, or its list of slugs (included, limits unknown); junk is none', () => {
-    expect(parsePlans(PLANS)[1]).toEqual({ name: 'Pro', mods: { workspaces: { workspaces: null, favorites: null, stream: 1 }, drips: { custom_drips: null, fullscreen: 1 } } })
+    expect(parsePlans(PLANS)[1]).toEqual({ name: 'Pro', price: 900, mods: { workspaces: { workspaces: null, favorites: null, stream: 1 }, drips: { custom_drips: null, fullscreen: 1 } } })
     expect(parsePlans(JSON.stringify([{ name: 'Free', mods: ['workspaces', 3] }, { nope: 1 }, null]))).toEqual([{ name: 'Free', mods: { workspaces: {} } }])
     expect(parsePlans(JSON.stringify([{ name: 'Free' }]))).toEqual([{ name: 'Free', mods: {} }])
     expect(parsePlans('{}')).toEqual([])
@@ -427,3 +428,42 @@ describe('Upgrade and Manage billing', () => {
     expect(r.opened).toEqual([])
   })
 })
+
+describe('Workspaces with add-on billing: in every plan, never an add-on', () => {
+  test("a Pro licence of the plan alone has Workspaces; Drips's add-on is no business of this mod's", async () => {
+    const { d, state, server, files } = fresh('pro')
+    d.verify = (licence, installId) => verifyLicence(licence, installId, ADDON_KEY)
+    files.set(LICENSE_PATH, licenceFile(PRO_BASE, T0))
+    server.licence = PRO_BASE
+    await load(d, true)
+    await fetchAddons(d)
+    expect(state().addons.map(a => a.mod)).toEqual(['drips', 'programs'])
+    expect(access(state(), T0)).toMatchObject({ kind: 'active', plan: 'Pro', limits: { workspaces: 10 } })
+    expect(pageStatus(state(), T0)).toMatchObject({ offer: null, quote: null, gate: null })
+    expect(await addOn(d)).toBe('Workspaces is in your Pro plan already.')
+    expect(server.asked('/v1/billing/addons/preview')).toHaveLength(0)
+  })
+
+  test('not in the plan, with no Workspaces add-on in the catalog: Upgrade and /workspaces add go to the plan that has it', async () => {
+    const { d, state, server } = fresh('none')
+    await load(d)
+    expect(gateOf(state(), T0)).toBe('Workspaces is not in your Free plan. Upgrade in /workspaces.')
+    expect(await upgrade(d)).toBe('Finish checkout (opened in the browser pane): Workspaces updates on its own.')
+    expect(await addOn(d)).toBe('Finish checkout (opened in the browser pane): Workspaces updates on its own.')
+    expect(server.asked('/v1/addons')).toHaveLength(2)
+    expect(server.asked('/v1/billing/addons/preview')).toHaveLength(0)
+    expect(server.asked('/v1/billing/checkout').map(r => r.body)).toEqual([{ plan: 'Pro', seats: 1 }, { plan: 'Pro', seats: 1 }])
+    expect(gateOf(state(), T0)).toBe('Workspaces is not in your Free plan. Upgrade in /workspaces.')
+  })
+
+  test("Upgrade checks out with the org's seats when the server says them; nothing to confirm without an add-on", async () => {
+    const { d, server } = fresh('free')
+    server.org = { seats: 4, seats_taken: 2 }
+    await load(d)
+    await upgrade(d, 'stream')
+    expect(server.asked('/v1/org')[0]!.headers.Authorization).toBe(BEARER)
+    expect(server.asked('/v1/billing/checkout')[0]!.body).toEqual({ plan: 'Pro', seats: 4 })
+    expect(await confirmAddOn(d)).toBe('Nothing to confirm: add Workspaces in /workspaces first.')
+  })
+})
+

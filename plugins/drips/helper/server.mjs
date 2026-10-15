@@ -15,7 +15,7 @@
 // (POST /api/licence-state: the plan and its limits, never the token); the
 // page reports its size (POST /api/viewport) and leaves its asks (POST
 // /api/ask: play, stop, save, delete, closed; POST /api/licence: signin,
-// cancel, upgrade, billing) for the mod to collect (GET /api/inbox,
+// cancel, upgrade, billing, addon, confirm) for the mod to collect (GET /api/inbox,
 // GET /api/licence-inbox). Everything reaches the page on one event stream
 // (GET /events).
 //
@@ -59,7 +59,7 @@ const ASSETS = {
   "/page.css": "text/css",
 }
 const ASKS = ["play", "stop", "save", "delete", "closed"]
-const isLicenceAction = a => ["signin", "cancel", "upgrade", "billing"].includes(a) || /^upgrade:[a-z_]{1,40}$/.test(String(a))
+const isLicenceAction = a => ["signin", "cancel", "upgrade", "billing", "addon", "confirm"].includes(a) || /^upgrade:[a-z_]{1,40}$/.test(String(a))
 
 const SECURITY = {
   "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-src 'self' about:; frame-ancestors 'none'",

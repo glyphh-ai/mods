@@ -9,8 +9,8 @@
 // too. It works on Deps, closures over `$` that ./hooks.tsx hands it.
 import type { Timer } from 'claude-code'
 
-import type { AccountState, Limits, PlanInfo } from '../../types'
-import { access, INITIAL, limitOf, upgradeTarget } from './access.ts'
+import type { AccountState, AddonInfo, AddonQuote, Limits, PlanInfo } from '../../types'
+import { access, addonOf, addonPlan, INITIAL, limitOf, money, quoteLine, upgradeTarget } from './access.ts'
 import { member, parseLexical, type Lexical } from './canonical.ts'
 import { LIMITS, MOD, PRODUCT, type LimitName } from './config.ts'
 import { INSTALL_FILE, LICENSE_FILE, RETRY_MS, SERVER, UPGRADE_POLL_MS, UPGRADE_WAIT_MS, WATCH_MS } from './server.ts'
@@ -190,7 +190,8 @@ export function refresh(d: Deps): Promise<void> {
   return refreshing
 }
 
-/** The plans in the server's order, each with its limits for this mod when the server says them. */
+/** The plans in the server's order, each with its limits for this mod when
+ *  the server says them, and its price a seat when it says it. */
 export function parsePlans(text: string): PlanInfo[] {
   const list = JSON.parse(text) as unknown
   if (!Array.isArray(list)) return []
@@ -203,7 +204,7 @@ export function parsePlans(text: string): PlanInfo[] {
     } else if (p.mods && typeof p.mods === 'object') {
       for (const [slug, m] of Object.entries(p.mods as Record<string, { limits?: Limits }>)) mods[slug] = { ...(m?.limits ?? {}) }
     }
-    return [{ name: p.name, mods }]
+    return [{ name: p.name, mods, ...(typeof p.seat_price_cents === 'number' ? { price: p.seat_price_cents } : {}) }]
   })
 }
 
@@ -215,6 +216,32 @@ export async function fetchPlans(d: Deps): Promise<void> {
     await d.state.set(s => ({ ...s, plans }))
   } catch (err) {
     report(d, 'plans', err)
+  }
+}
+
+/** The add-ons as GET /v1/addons lists them for the org's plan; junk is none. */
+export function parseAddons(text: string): AddonInfo[] {
+  const list = JSON.parse(text) as unknown
+  if (!Array.isArray(list)) return []
+  return list.flatMap((a): AddonInfo[] => {
+    if (!a || typeof a.mod !== 'string' || typeof a.price_cents !== 'number' || !Array.isArray(a.plans)) return []
+    const plans = (a.plans as unknown[]).filter((n): n is string => typeof n === 'string')
+    const name = typeof a.name === 'string' ? a.name : a.mod
+    return [{ mod: a.mod, name, price_cents: a.price_cents, per_seat: a.per_seat !== false, plans, free: a.free === true, allowed: a.allowed === true, added: a.added === true }]
+  })
+}
+
+/** The add-on catalog for the org's plan, with what the org has (signed in only). */
+export async function fetchAddons(d: Deps): Promise<void> {
+  const install = (await d.state.get()).install
+  if (!install) return
+  const r = await d.fetch(`${SERVER}/v1/addons`, { headers: bearer(install) }).catch(() => null)
+  if (!r?.ok) return
+  try {
+    const addons = parseAddons(r.text)
+    await d.state.set(s => ({ ...s, addons }))
+  } catch (err) {
+    report(d, 'add-ons', err)
   }
 }
 
@@ -230,10 +257,10 @@ export async function tick(d: Deps): Promise<void> {
  *  the plans fetched in the background, and the files watched. */
 export async function start(d: Deps): Promise<void> {
   stop()
-  await d.state.set(s => ({ ...s, signIn: null, upgrading: null, note: null }))
+  await d.state.set(s => ({ ...s, signIn: null, upgrading: null, quote: null, note: null }))
   await load(d, true)
   watch = d.every(WATCH_MS, () => tick(d).catch(err => report(d, 'watch', err)))
-  void refresh(d)
+  void refresh(d).then(() => fetchAddons(d))
   void fetchPlans(d)
 }
 
@@ -332,16 +359,17 @@ async function signedIn(d: Deps, text: string): Promise<void> {
   signInTimer = null
   await d.state.set(s => ({ ...s, install, licence: null, fetchedAt: null, signIn: null, note: null }))
   await refresh(d)
+  await fetchAddons(d)
   const plan = (await d.state.get()).licence?.plan
   d.toast(plan ? `Signed in to Glyphh: ${plan} plan.` : 'Signed in to Glyphh.')
 }
 
-/** Stops a sign-in or a wait for checkout. */
+/** Stops a sign-in, a wait for checkout or an add-on's price awaiting Confirm. */
 export async function cancel(d: Deps): Promise<void> {
   upgradeTimer?.cancel()
   upgradeTimer = null
   await endSignIn(d, null)
-  await d.state.set(s => ({ ...s, upgrading: null }))
+  await d.state.set(s => ({ ...s, upgrading: null, quote: null }))
 }
 
 /** Signs this machine out of Glyphh, for every Glyphh mod on it. */
@@ -361,6 +389,8 @@ export async function signOut(d: Deps): Promise<string> {
 // ── Billing ─────────────────────────────────────────────────────────────────
 
 const ADMIN_ONLY = "Only your Glyphh org's admin can change its plan and billing."
+const ADMIN_ADDS = "Only your Glyphh org's admin can add mods."
+const OFFLINE = 'Could not reach Glyphh. Check your connection and try again.'
 
 /** Opens Stripe's billing page for the org (card, invoices, plan, cancel). */
 export async function billing(d: Deps): Promise<string> {
@@ -404,8 +434,21 @@ async function say(d: Deps, note: string | null, line = note ?? ''): Promise<str
 
 /** Upgrade: checkout for the plan that lifts `limit` (or the next plan with
  *  this mod), opened in the browser; the licence then asked until the plan
- *  changes. An org already subscribed changes plan in Stripe's billing page. */
+ *  changes. An org already subscribed changes plan in Stripe's billing page.
+ *  A mod not in the plan that is sold as an add-on is added instead (addOn). */
 export async function upgrade(d: Deps, limit?: LimitName): Promise<string> {
+  const s = await d.state.get()
+  if (!s.install || !s.licence) return signIn(d)
+  if (!limit && !s.licence.mods[MOD]) {
+    await fetchAddons(d)
+    const addon = addonOf(await d.state.get())
+    if (addon) return addAddon(d, addon)
+  }
+  return planUpgrade(d, limit)
+}
+
+/** Checkout for the plan that lifts `limit`, or the next plan with this mod. */
+async function planUpgrade(d: Deps, limit?: LimitName): Promise<string> {
   const s = await d.state.get()
   if (!s.install || !s.licence) return signIn(d)
   if (!s.plans.length) await fetchPlans(d)
@@ -413,24 +456,45 @@ export async function upgrade(d: Deps, limit?: LimitName): Promise<string> {
   const have = limit ? (limitOf(access(s, await d.now()), limit) ?? 0) : 0
   const plan = upgradeTarget(plans, s.licence.plan, limit, have)
   if (!plan) return say(d, `There is no plan above ${s.licence.plan} to upgrade to.`)
-  let seats = 1
+  return checkout(d, s.install, s.licence.plan, plan, [])
+}
+
+const post = (d: Deps, install: Install, path: string, body: unknown) =>
+  d.fetch(`${SERVER}${path}`, { method: 'POST', headers: { ...bearer(install), 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null)
+
+/** The org's seats, never fewer than are taken; 1 when the server does not say. */
+async function orgSeats(d: Deps, install: Install): Promise<number> {
+  const r = await d.fetch(`${SERVER}/v1/org`, { headers: bearer(install) }).catch(() => null)
+  if (!r?.ok) return 1
+  try {
+    const org = JSON.parse(r.text) as { seats?: unknown; seats_taken?: unknown }
+    const n = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : 1)
+    return Math.max(n(org.seats), n(org.seats_taken))
+  } catch {
+    return 1
+  }
+}
+
+/** Stripe Checkout for `plan` per seat (the org's seats) and each add-on in
+ *  `addons`, opened; the licence then asked until the plan changes (or, with
+ *  an add-on, until this mod is in it). */
+async function checkout(d: Deps, install: Install, from: string, plan: string, addons: string[]): Promise<string> {
+  let seats = await orgSeats(d, install)
   for (let attempt = 0; attempt < 2; attempt++) {
-    const r = await d
-      .fetch(`${SERVER}/v1/billing/checkout`, { method: 'POST', headers: { ...bearer(s.install), 'Content-Type': 'application/json' }, body: JSON.stringify({ plan, seats }) })
-      .catch(() => null)
-    if (!r) return say(d, 'Could not reach Glyphh. Check your connection and try again.')
+    const r = await post(d, install, '/v1/billing/checkout', addons.length ? { plan, seats, addons } : { plan, seats })
+    if (!r) return say(d, OFFLINE)
     const url = r.ok ? urlOf(r.text) : null
     if (url) {
       const where = await show(d, url, 'checkout')
-      await waitForPlan(d, s.licence.plan)
+      await waitForPlan(d, from, addons.length ? MOD : undefined)
       return say(d, `Finish checkout (${where}): ${PRODUCT} updates on its own.`)
     }
     const e = errorOf(r)
-    if (r.status === 403) return say(d, ADMIN_ONLY)
-    if (e.detail.reason === 'subscribed') {
+    if (r.status === 403) return say(d, addons.length ? ADMIN_ADDS : ADMIN_ONLY)
+    if (e.detail.reason === 'subscribed' && !addons.length) {
       const opened = await openBilling(d)
       if (opened.where) {
-        await waitForPlan(d, s.licence.plan)
+        await waitForPlan(d, from)
         return say(d, `Change to ${plan} in the billing page (${opened.where}): ${PRODUCT} updates on its own.`)
       }
       return opened.line
@@ -445,26 +509,118 @@ export async function upgrade(d: Deps, limit?: LimitName): Promise<string> {
   return say(d, 'Checkout could not start. Try again.')
 }
 
-/** The licence asked every few seconds until its plan is not `from`. */
-async function waitForPlan(d: Deps, from: string): Promise<void> {
+/** Adds this mod's add-on: an org not subscribed yet subscribes through
+ *  Checkout to the cheapest plan that allows it, with it; a subscribed org is
+ *  shown what it costs now (prorated) and a month, to Confirm. Not sold as an
+ *  add-on, Upgrade to the plan that has it. Says what to do. */
+export async function addOn(d: Deps): Promise<string> {
+  const s = await d.state.get()
+  if (!s.install || !s.licence) return signIn(d)
+  if (s.licence.mods[MOD]) return say(d, `${PRODUCT} is in your ${s.licence.plan} plan already.`)
+  await fetchAddons(d)
+  const addon = addonOf(await d.state.get())
+  return addon ? addAddon(d, addon) : planUpgrade(d)
+}
+
+/** The preview's answer: what adding it costs now and a month. */
+function quoteOf(text: string): AddonQuote | null {
+  try {
+    const v = JSON.parse(text) as Record<string, unknown>
+    const int = (x: unknown) => typeof x === 'number' && Number.isInteger(x)
+    if (v.mod !== MOD || !int(v.prorated_cents) || !int(v.monthly_cents) || !int(v.proration_date)) return null
+    const currency = typeof v.currency === 'string' && v.currency ? v.currency : 'usd'
+    return { mod: MOD, proratedCents: v.prorated_cents as number, monthlyCents: v.monthly_cents as number, currency, prorationDate: v.proration_date as number }
+  } catch {
+    return null
+  }
+}
+
+async function addAddon(d: Deps, addon: AddonInfo): Promise<string> {
+  const s = await d.state.get()
+  if (!s.install || !s.licence) return signIn(d)
+  const r = await post(d, s.install, '/v1/billing/addons/preview', { mod: MOD, action: 'add' })
+  if (!r) return say(d, OFFLINE)
+  if (r.ok) {
+    const quote = quoteOf(r.text)
+    if (!quote) return say(d, `The Glyphh server answered ${r.status}.`)
+    await d.state.set(x => ({ ...x, quote }))
+    return say(d, null, `${quoteLine(quote)} Confirm in /${MOD}, or /${MOD} add confirm.`)
+  }
+  const e = errorOf(r)
+  if (r.status === 403) return say(d, ADMIN_ADDS)
+  if (e.detail.reason === 'not_subscribed') {
+    if (!s.plans.length) await fetchPlans(d)
+    const plan = addonPlan(addon, (await d.state.get()).plans, s.licence.plan)
+    if (!plan) return say(d, `${PRODUCT} is not sold with any plan yet.`)
+    return checkout(d, s.install, s.licence.plan, plan, [MOD])
+  }
+  if (e.detail.reason === 'already_added') return alreadyAdded(d)
+  if (e.detail.reason === 'not_on_plan') {
+    const plan = addonPlan({ ...addon, allowed: false }, s.plans, s.licence.plan)
+    return say(d, `${PRODUCT} isn't sold with your ${s.licence.plan} plan. ${plan ? `Change to ${plan}` : 'Change plan'} in Manage billing, then add it.`)
+  }
+  return say(d, e.message)
+}
+
+/** The org has the add-on already: the licence asked for again. */
+async function alreadyAdded(d: Deps): Promise<string> {
+  await d.state.set(x => ({ ...x, quote: null }))
+  await refresh(d)
+  await fetchAddons(d)
+  const has = Boolean((await d.state.get()).licence?.mods[MOD])
+  return say(d, has ? null : `Your org has ${PRODUCT} already: it opens here once your licence updates.`, has ? `Your org has ${PRODUCT} already.` : undefined)
+}
+
+/** Adds the add-on at the price the preview showed (its proration date
+ *  passed back, so Stripe charges exactly that), then the licence refreshed. */
+export async function confirmAddOn(d: Deps): Promise<string> {
+  const s = await d.state.get()
+  if (!s.install || !s.licence) return signIn(d)
+  const quote = s.quote?.mod === MOD ? s.quote : null
+  if (!quote) return say(d, `Nothing to confirm: add ${PRODUCT} in /${MOD} first.`)
+  const r = await post(d, s.install, '/v1/billing/addons', { mod: MOD, proration_date: quote.prorationDate })
+  if (!r) return say(d, OFFLINE)
+  await d.state.set(x => ({ ...x, quote: null }))
+  if (!r.ok) {
+    const e = errorOf(r)
+    if (r.status === 403) return say(d, ADMIN_ADDS)
+    if (e.detail.reason === 'already_added') return alreadyAdded(d)
+    return say(d, e.message)
+  }
+  await refresh(d)
+  await fetchAddons(d)
+  if ((await d.state.get()).licence?.mods[MOD]) {
+    d.toast(`Glyphh: ${PRODUCT} is added.`)
+    return say(d, null, `${PRODUCT} is added: ${money(quote.monthlyCents, quote.currency)}/month on your plan.`)
+  }
+  await waitForPlan(d, s.licence.plan, MOD)
+  return say(d, null, `${PRODUCT} is added: it opens here once your licence updates.`)
+}
+
+/** The licence asked every few seconds until its plan is not `from` or,
+ *  waiting for an add-on, until `mod` is in it. */
+async function waitForPlan(d: Deps, from: string, mod?: string): Promise<void> {
   upgradeTimer?.cancel()
   const until = (await d.now()) + UPGRADE_WAIT_MS
-  await d.state.set(s => ({ ...s, upgrading: { plan: from } }))
+  await d.state.set(s => ({ ...s, upgrading: mod ? { plan: from, mod } : { plan: from } }))
   const timer: Timer = d.every(UPGRADE_POLL_MS, async () => {
     if (upgradeTimer !== timer) return
     if ((await d.now()) >= until) {
       timer.cancel()
       upgradeTimer = null
-      await d.state.set(s => ({ ...s, upgrading: null, note: 'No plan change seen yet. Your plan updates here once checkout finishes.' }))
+      const note = mod ? `${PRODUCT} is not in your plan yet. It opens here once checkout finishes.` : 'No plan change seen yet. Your plan updates here once checkout finishes.'
+      await d.state.set(s => ({ ...s, upgrading: null, note }))
       return
     }
     await refresh(d)
-    const plan = (await d.state.get()).licence?.plan
-    if (upgradeTimer !== timer || !plan || plan === from) return
+    const l = (await d.state.get()).licence
+    const done = l && (mod ? Boolean(l.mods[mod]) : l.plan !== from)
+    if (upgradeTimer !== timer || !done) return
     timer.cancel()
     upgradeTimer = null
     await d.state.set(s => ({ ...s, upgrading: null, note: null }))
-    d.toast(`Glyphh: you are on the ${plan} plan now.`)
+    if (mod) await fetchAddons(d)
+    d.toast(mod ? `Glyphh: ${PRODUCT} is in your ${l.plan} plan now.` : `Glyphh: you are on the ${l.plan} plan now.`)
   })
   upgradeTimer = timer
 }

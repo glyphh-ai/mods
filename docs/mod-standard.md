@@ -98,6 +98,18 @@ it; `shared/README.md` has the flow in full.
    the plan that lifts the limit and waits for the licence's plan to change;
    Manage billing opens Stripe's billing page. The org's admin makes these
    changes; the mod says so to anyone else.
+6. **Add-ons.** The plans (Free, Pro, Team) include Workspaces alone; every
+   other mod (Drips, Programs, Gateway, Ada) is an add-on on the org's one
+   Stripe subscription, allowed on the paid plans (`GET /v1/addons`). A mod
+   sold as one and not in `mods` is closed with its offer, "Drips is an
+   add-on ($2/month per seat on Pro). Add it in /drips.", and **Add it**
+   (`addOn()`, `/<mod> add`). Not subscribed, Add it opens Checkout for the
+   cheapest plan that allows it with the add-on, at the org's seats, and
+   waits for the mod to be in the licence. Subscribed, it shows the
+   prorated price now and the month (`POST /v1/billing/addons/preview`)
+   with **Confirm** (`/<mod> add confirm`), which adds it at that price
+   (`POST /v1/billing/addons` with the preview's `proration_date`) and
+   refreshes the licence.
 
 The mod's own values live only in `hooks/licence/config.ts`: `MOD`,
 `PRODUCT`, `ABOUT` and `LIMITS`. Every other file in `hooks/licence/` is a
@@ -107,7 +119,8 @@ release swaps in the live `SERVER` and `PUBLIC_KEY` from `release.json`.
 The page shows the account in words that the mod sends it (`pageStatus`):
 signed out with **Sign in to Glyphh** (and the code while signing in), the
 plan with **Upgrade** and **Manage billing** in its top bar, or the locked
-screen (what the mod does, and why it is closed). It also gets each limit
+screen (what the mod does, and why it is closed: an add-on's offer with
+**Add it**, or its price with **Confirm**). It also gets each limit
 and its refusal line, so a save past a limit is refused inline with
 **Upgrade**. The token never goes to the page.
 

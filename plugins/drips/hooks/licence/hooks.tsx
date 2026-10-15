@@ -1,19 +1,20 @@
 // Copied from shared/licence/hooks.tsx by scripts/sync-shared.mjs: edit it there.
 // The account, wired to the engine: the one file of this module that holds
 // `$` and the account's state (the engine follows `$` and atoms only within
-// the file whose hook received them). It adds `/<MOD> signin` and
-// `/<MOD> signout` to the mod's command, and shows the account in the mod's
-// page: every second it sends the page's helper the account's state in words
-// (pageStatus, never the token) when that changed, and takes what the page
-// asked (Sign in, Cancel, Upgrade, Manage billing). Commands the plan limits
-// check `refusal()` from ./access themselves, reading this same state.
+// the file whose hook received them). It adds `/<MOD> signin`,
+// `/<MOD> signout` and `/<MOD> add [confirm]` (the mod's add-on) to the mod's
+// command, and shows the account in the mod's page: every second it sends the
+// page's helper the account's state in words (pageStatus, never the token)
+// when that changed, and takes what the page asked (Sign in, Cancel, Upgrade,
+// Add it, Confirm, Manage billing). Commands the plan limits check
+// `refusal()` from ./access themselves, reading this same state.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, Timer } from 'claude-code'
 
 import type { HelperInfo } from '../../types'
 import { INITIAL, pageAction, pageStatus, type PageAction } from './access.ts'
 import { MOD } from './config.ts'
-import { billing, cancel, isLimit, signIn, signOut, start, upgrade, type Deps, type Machine } from './flow.ts'
+import { addOn, billing, cancel, confirmAddOn, isLimit, signIn, signOut, start, upgrade, type Deps, type Machine } from './flow.ts'
 
 // The engine reads a state reference's plugin and key, and a hook's matcher,
 // as literals, so the mod's name ('drips', MOD in ./config) is written
@@ -98,6 +99,8 @@ async function act($: EngineInterface, action: PageAction): Promise<void> {
   if (action === 'signin') await signIn(d)
   else if (action === 'cancel') await cancel(d)
   else if (action === 'billing') await billing(d)
+  else if (action === 'addon') await addOn(d)
+  else if (action === 'confirm') await confirmAddOn(d)
   else {
     const limit = action.slice('upgrade:'.length)
     await upgrade(d, action !== 'upgrade' && isLimit(limit) ? limit : undefined)
@@ -139,6 +142,11 @@ export function licensing(on: On) {
 
   on('command.run', { command: 'drips' }, async ($, e, next) => {
     const words = e.args.trim().split(/\s+/)
+    if (words[0] === 'add') {
+      if (words.length === 1) return { text: await addOn(deps($)) }
+      if (words.length === 2 && words[1] === 'confirm') return { text: await confirmAddOn(deps($)) }
+      return { text: `Usage: /${MOD} add [confirm]` }
+    }
     if (words[0] !== 'signin' && words[0] !== 'signout') return next(e)
     if (words.length !== 1) return { text: `Usage: /${MOD} ${words[0]}` }
     return { text: words[0] === 'signin' ? await signIn(deps($)) : await signOut(deps($)) }

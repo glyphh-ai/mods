@@ -59,8 +59,31 @@ export type LicencePayload = {
   expires_at: string
 }
 
-/** A plan as GET /v1/plans lists it: its name and, per mod it includes, the limits it says. */
-export type PlanInfo = { name: string; mods: Record<string, Limits> }
+/** A plan as GET /v1/plans lists it: its name, per mod it includes the
+ *  limits it says, and its price a seat a month in cents when it says it. */
+export type PlanInfo = { name: string; mods: Record<string, Limits>; price?: number }
+
+/** An add-on as GET /v1/addons lists it for the org's plan: a mod sold as a
+ *  line on the org's subscription (every mod but Workspaces). */
+export type AddonInfo = {
+  mod: string
+  name: string
+  /** A month, in cents: per seat when per_seat, else flat. */
+  price_cents: number
+  per_seat: boolean
+  /** The paid plans it may be added to. */
+  plans: string[]
+  /** Whether a Free org may have it. */
+  free: boolean
+  /** Whether the org's plan may have it. */
+  allowed: boolean
+  /** Whether the org has it. */
+  added: boolean
+}
+
+/** What adding the add-on costs, as POST /v1/billing/addons/preview said:
+ *  shown with Confirm, and its proration date sent back when adding. */
+export type AddonQuote = { mod: string; proratedCents: number; monthlyCents: number; currency: string; prorationDate: number }
 
 /** The Glyphh account as this session holds it: the sign-in shared by every
  *  Glyphh mod (~/.glyphh/install.json) and the plan's licence
@@ -73,10 +96,14 @@ export type AccountState = {
   fetchedAt: number | null
   /** Signing in: the code the person checks, and the page. */
   signIn: { userCode: string; uri: string } | null
-  /** Checkout is open: the plan it started from. */
-  upgrading: { plan: string } | null
+  /** Checkout is open: the plan it started from, and the add-on it buys. */
+  upgrading: { plan: string; mod?: string } | null
   plans: PlanInfo[]
-  /** What the last sign-in, upgrade or billing came to. */
+  /** The add-on catalog for the org's plan, and which it has. */
+  addons: AddonInfo[]
+  /** An add-on's price, previewed, awaiting Confirm. */
+  quote: AddonQuote | null
+  /** What the last sign-in, upgrade, add-on or billing came to. */
   note: string | null
 }
 

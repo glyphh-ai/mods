@@ -9,7 +9,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, Timer } from 'claude-code'
 
 import type { Choices, Entry, Favorite, HelperInfo, Requirements } from '../../types'
-import { access, gate, INITIAL, refusal } from '../licence/access.ts'
+import { gateOf, INITIAL, refusal } from '../licence/access.ts'
 import { findFile, openPage, showFile, togglePane, type App, type MenuPane } from './desktop.ts'
 import { findWorkspace, listText } from './dip.ts'
 import { load, patchWorkspace, type Disk } from './files.ts'
@@ -244,7 +244,7 @@ function startHelper($: EngineInterface): Promise<Link> {
 
 /** Why Workspaces may not be used now (signed out, not in the plan), or null. */
 async function refused($: EngineInterface): Promise<string | null> {
-  return gate(access(await read($, account), await $.clock.now()))
+  return gateOf(await read($, account), await $.clock.now())
 }
 
 /** Why the live layout page may not run (the plan's `stream` limit), or null. */

@@ -79,6 +79,13 @@ describe('the Glyphh account in Workspaces', () => {
     expect(await run('dip', 'IDE')).toStartWith('→ IDE')
   })
 
+  test('/workspaces add: Workspaces comes with every plan; a usage line for other words', async ($, on) => {
+    const { run } = await started($, on)
+    expect(await run('workspaces', 'add')).toBe('Workspaces is in your Pro plan already.')
+    expect(await run('workspaces', 'add confirm')).toBe('Nothing to confirm: add Workspaces in /workspaces first.')
+    expect(await run('workspaces', 'add it')).toBe('Usage: /workspaces add [confirm]')
+  })
+
   test('/workspaces signin and signout', async ($, on) => {
     const { run, files, server } = await started($, on)
     expect(await run('workspaces', 'signin')).toBe('Signed in to Glyphh (Pro plan).')

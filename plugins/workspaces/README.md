@@ -163,8 +163,9 @@ again straight away.
 
 ## Your Glyphh account and plan
 
-Workspaces comes with a Glyphh subscription. Sign in with a free Glyphh
-account, and your plan sets what Workspaces can do.
+Workspaces comes with every Glyphh plan, Free included. Sign in with a free
+Glyphh account, and your plan sets what Workspaces can do. Other Glyphh mods
+(Drips, Programs) are add-ons to a paid plan.
 
 **Sign in.** Open the layout page with `/workspaces` and press **Sign in to
 Glyphh**, or run `/workspaces signin`. A Glyphh page opens in Claude's browser

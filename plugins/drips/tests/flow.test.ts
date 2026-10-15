@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { billing, cancel, errorOf, load, parseInstall, parseLicenceFile, parsePlans, refresh, refreshDue, signIn, signOut, start, stop, tick, upgrade } from '../hooks/licence/flow.ts'
-import { access } from '../hooks/licence/access.ts'
+import { addOn, billing, cancel, confirmAddOn, errorOf, fetchAddons, load, parseAddons, parseInstall, parseLicenceFile, parsePlans, refresh, refreshDue, signIn, signOut, start, stop, tick, upgrade } from '../hooks/licence/flow.ts'
+import { access, gateOf, pageStatus } from '../hooks/licence/access.ts'
+import { verifyLicence } from '../hooks/licence/verify.ts'
 import { fakeDeps, T0 } from './account-fakes.ts'
-import { INSTALL_PATH, LICENSE_PATH, PLANS, refusalBody, SERVER, TOKEN, installFile, licenceFile } from './glyphh.ts'
-import { FAR, FREE, INSTALL, OTHER_INSTALL, PRO } from './licences.ts'
+import { ADDONS, addonOf, INSTALL_PATH, LICENSE_PATH, PLANS, PREVIEW, refusalBody, SERVER, TOKEN, installFile, licenceFile } from './glyphh.ts'
+import { ADDON_KEY, FAR, FREE, INSTALL, OTHER_INSTALL, PRO, PRO_ADDED, PRO_BASE } from './licences.ts'
 
 const BEARER = `Bearer ${TOKEN}`
 const ADMIN_ONLY = "Only your Glyphh org's admin can change its plan and billing."
@@ -158,7 +159,7 @@ describe('the licence from the server', () => {
   })
 
   test('the plans: the server\'s map of limits, or its list of slugs (included, limits unknown); junk is none', () => {
-    expect(parsePlans(PLANS)[1]).toEqual({ name: 'Pro', mods: { workspaces: { workspaces: null, favorites: null, stream: 1 }, drips: { custom_drips: null, fullscreen: 1 } } })
+    expect(parsePlans(PLANS)[1]).toEqual({ name: 'Pro', price: 900, mods: { workspaces: { workspaces: null, favorites: null, stream: 1 }, drips: { custom_drips: null, fullscreen: 1 } } })
     expect(parsePlans(JSON.stringify([{ name: 'Free', mods: ['drips', 3] }, { nope: 1 }, null]))).toEqual([{ name: 'Free', mods: { drips: {} } }])
     expect(parsePlans(JSON.stringify([{ name: 'Free' }]))).toEqual([{ name: 'Free', mods: {} }])
     expect(parsePlans('{}')).toEqual([])
@@ -425,5 +426,209 @@ describe('Upgrade and Manage billing', () => {
     expect(await billing(r.d)).toBe('Billing: Claude is asked to open it in the browser pane.')
     expect(r.asked).toEqual(['Open this page in the browser pane: https://billing.stripe.com/p/session/test_1'])
     expect(r.opened).toEqual([])
+  })
+})
+
+describe('Drips as an add-on (the plans include Workspaces alone)', () => {
+  const ADMIN_ADDS = "Only your Glyphh org's admin can add mods."
+  const OFFER = 'Drips is an add-on ($2/month per seat on Pro).'
+
+  /** A subscribed Pro org without Drips: its licence signed with the test key. */
+  const subscribed = async () => {
+    const t = fresh('pro')
+    t.d.verify = (licence, installId) => verifyLicence(licence, installId, ADDON_KEY)
+    t.files.set(LICENSE_PATH, licenceFile(PRO_BASE, T0))
+    t.server.licence = PRO_BASE
+    t.server.addons = { status: 200, body: [addonOf('drips', { allowed: true }), addonOf('programs', { allowed: true })] }
+    t.server.previews.push({ status: 200, body: PREVIEW })
+    await load(t.d)
+    await fetchAddons(t.d)
+    return t
+  }
+
+  test('the catalog: what the org may add and has; junk is none; signed out or refused, nothing asked or kept', async () => {
+    expect(parseAddons(JSON.stringify(ADDONS))).toEqual([
+      { mod: 'drips', name: 'Drips', price_cents: 200, per_seat: true, plans: ['Pro', 'Team'], free: false, allowed: false, added: false },
+      { mod: 'programs', name: 'Programs', price_cents: 400, per_seat: true, plans: ['Pro', 'Team'], free: false, allowed: false, added: false },
+    ])
+    expect(parseAddons(JSON.stringify([{ mod: 'x', price_cents: 100, plans: ['Pro', 3], per_seat: false, free: true }, { mod: 'y' }, null]))).toEqual([
+      { mod: 'x', name: 'x', price_cents: 100, per_seat: false, plans: ['Pro'], free: true, allowed: false, added: false },
+    ])
+    expect(parseAddons('{}')).toEqual([])
+    const out = fresh('signed-out')
+    await fetchAddons(out.d)
+    expect(out.server.asked('/v1/addons')).toHaveLength(0)
+    const { d, state, server, logs } = fresh('none')
+    await load(d)
+    server.addons = { status: 500, body: 'no' }
+    await fetchAddons(d)
+    expect(state().addons).toEqual([])
+    server.addons = { status: 200, body: 'not json' }
+    await fetchAddons(d)
+    expect(logs.some(l => l.startsWith('drips account: add-ons:'))).toBe(true)
+  })
+
+  test('at the start the catalog is fetched with the token; not in the plan, Drips refuses with the offer pointing at /drips', async () => {
+    const { d, state, server } = fresh('none')
+    await start(d)
+    await refresh(d)
+    await fetchAddons(d)
+    expect(server.asked('/v1/addons')[0]!.headers.Authorization).toBe(BEARER)
+    expect(gateOf(state(), T0)).toBe(`${OFFER} Add it in /drips.`)
+    expect(pageStatus(state(), T0)).toMatchObject({ kind: 'not-in-plan', offer: OFFER, quote: null, gate: `${OFFER} Add it in /drips.` })
+  })
+
+  test('Free, not subscribed: checkout for the cheapest plan that allows it with the add-on, the org\'s seats; the licence asked until Drips is in it', async () => {
+    const { d, state, server, browsed, toasts, w } = fresh('none')
+    server.org = { seats: 2, seats_taken: 1 }
+    await load(d)
+    expect(await addOn(d)).toBe('Finish checkout (opened in the browser pane): Drips updates on its own.')
+    expect(server.asked('/v1/billing/addons/preview')[0]).toMatchObject({ method: 'POST', headers: { Authorization: BEARER }, body: { mod: 'drips', action: 'add' } })
+    expect(server.asked('/v1/billing/checkout')[0]).toMatchObject({ method: 'POST', headers: { Authorization: BEARER }, body: { plan: 'Pro', seats: 2, addons: ['drips'] } })
+    expect(browsed).toEqual(['https://checkout.stripe.com/c/pay/cs_test_1'])
+    expect(state().upgrading).toEqual({ plan: 'Free', mod: 'drips' })
+    expect(pageStatus(state(), T0).isUpgrading).toBe(true)
+    await w.advance(5000)
+    expect(state().upgrading).not.toBeNull()
+    server.licence = PRO
+    server.addons = { status: 200, body: [addonOf('drips', { allowed: true, added: true }), addonOf('programs', { allowed: true })] }
+    await w.advance(5000)
+    expect(state()).toMatchObject({ upgrading: null, note: null, licence: { plan: 'Pro' } })
+    expect(state().addons[0]!.added).toBe(true)
+    expect(toasts).toContain('Glyphh: Drips is in your Pro plan now.')
+    expect(gateOf(state(), T0)).toBeNull()
+  })
+
+  test("the page's Upgrade, not in the plan, is the add-on too; checkout's wait for Drips ends after 15 minutes and says so", async () => {
+    const { d, state, server, w } = fresh('none')
+    await load(d)
+    expect(await upgrade(d)).toBe('Finish checkout (opened in the browser pane): Drips updates on its own.')
+    expect(server.asked('/v1/billing/checkout')[0]!.body).toEqual({ plan: 'Pro', seats: 1, addons: ['drips'] })
+    await w.advance(15 * 60_000)
+    expect(state()).toMatchObject({ upgrading: null, note: 'Drips is not in your plan yet. It opens here once checkout finishes.' })
+  })
+
+  test('checkout for the add-on: not the admin, or refused, is said; seats raised to those taken', async () => {
+    const { d, server } = fresh('none')
+    server.org = { seats: 1, seats_taken: 3 }
+    await load(d)
+    server.checkout.push({ status: 403, body: refusalBody('E_FORBIDDEN', 'Admins only.') })
+    expect(await addOn(d)).toBe(ADMIN_ADDS)
+    expect(server.asked('/v1/billing/checkout')[0]!.body).toEqual({ plan: 'Pro', seats: 3, addons: ['drips'] })
+    server.checkout.push({ status: 409, body: refusalBody('E_CONFLICT', 'Your org is already subscribed: change plan or seats instead.', { reason: 'subscribed' }) })
+    expect(await addOn(d)).toBe('Your org is already subscribed: change plan or seats instead.')
+    server.addons = { status: 200, body: [addonOf('drips', { plans: [] })] }
+    expect(await addOn(d)).toBe('Drips is not sold with any plan yet.')
+  })
+
+  test('subscribed: the prorated price and the month shown to confirm; Confirm adds it at that price, the licence refreshed', async () => {
+    const { d, state, server, toasts } = await subscribed()
+    expect(gateOf(state(), T0)).toBe(`${OFFER} Add it in /drips.`)
+    expect(await addOn(d)).toBe('Add Drips: $0.87 now (prorated), then $2/month. Confirm in /drips, or /drips add confirm.')
+    expect(server.asked('/v1/billing/checkout')).toHaveLength(0)
+    expect(state().quote).toEqual({ mod: 'drips', proratedCents: 87, monthlyCents: 200, currency: 'usd', prorationDate: PREVIEW.proration_date })
+    expect(pageStatus(state(), T0)).toMatchObject({ offer: OFFER, quote: 'Add Drips: $0.87 now (prorated), then $2/month.' })
+    server.licence = PRO_ADDED
+    expect(await confirmAddOn(d)).toBe('Drips is added: $2/month on your plan.')
+    expect(server.asked('/v1/billing/addons')[0]).toMatchObject({ method: 'POST', headers: { Authorization: BEARER }, body: { mod: 'drips', proration_date: PREVIEW.proration_date } })
+    expect(state()).toMatchObject({ quote: null, licence: { plan: 'Pro', mods: { drips: { limits: { custom_drips: null } } } } })
+    expect(toasts).toContain('Glyphh: Drips is added.')
+    expect(gateOf(state(), T0)).toBeNull()
+    expect(await addOn(d)).toBe('Drips is in your Pro plan already.')
+  })
+
+  test('added, but the licence not updated yet: it is asked for until Drips is in it', async () => {
+    const { d, state, server, toasts, w } = await subscribed()
+    await addOn(d)
+    expect(await confirmAddOn(d)).toBe('Drips is added: it opens here once your licence updates.')
+    expect(state().upgrading).toEqual({ plan: 'Pro', mod: 'drips' })
+    server.licence = PRO_ADDED
+    await w.advance(5000)
+    expect(state().upgrading).toBeNull()
+    expect(toasts).toContain('Glyphh: Drips is in your Pro plan now.')
+  })
+
+  test("not the org's admin: only the admin can add mods, at the preview or at Confirm", async () => {
+    const a = fresh('none')
+    await load(a.d)
+    a.server.previews.push({ status: 403, body: refusalBody('E_FORBIDDEN', "Only your org's admin can do that.", { role: 'member' }) })
+    expect(await addOn(a.d)).toBe(ADMIN_ADDS)
+    expect(a.state().note).toBe(ADMIN_ADDS)
+    expect(a.server.asked('/v1/billing/checkout')).toHaveLength(0)
+    const b = await subscribed()
+    await addOn(b.d)
+    b.server.adds.push({ status: 403, body: refusalBody('E_FORBIDDEN', "Only your org's admin can do that.") })
+    expect(await confirmAddOn(b.d)).toBe(ADMIN_ADDS)
+    expect(b.state().quote).toBeNull()
+  })
+
+  test('the preview refused: not_on_plan names the plan to change to; already_added asks for the licence again', async () => {
+    const t = await subscribed()
+    t.server.previews.length = 0
+    t.server.previews.push({ status: 409, body: refusalBody('E_CONFLICT', "Drips isn't sold with Pro.", { reason: 'not_on_plan', mod: 'drips', plan: 'Pro' }) })
+    expect(await addOn(t.d)).toBe("Drips isn't sold with your Pro plan. Change to Pro in Manage billing, then add it.")
+    t.server.previews.push({ status: 409, body: refusalBody('E_CONFLICT', 'Your org has the Drips add-on already.', { reason: 'already_added', mod: 'drips' }) })
+    expect(await addOn(t.d)).toBe('Your org has Drips already: it opens here once your licence updates.')
+    expect(t.server.asked('/v1/license').length).toBeGreaterThan(0)
+    t.server.previews.push({ status: 409, body: refusalBody('E_CONFLICT', 'Your org has the Drips add-on already.', { reason: 'already_added', mod: 'drips' }) })
+    t.server.licence = PRO_ADDED
+    expect(await addOn(t.d)).toBe('Your org has Drips already.')
+    expect(await addOn(t.d)).toBe('Drips is in your Pro plan already.')
+    const u = await subscribed()
+    u.server.previews.length = 0
+    u.server.previews.push({ status: 409, body: refusalBody('E_CONFLICT', 'x', { reason: 'not_on_plan' }) })
+    u.server.plans = JSON.stringify([{ name: 'Free', mods: {} }])
+    u.d.state.set(s => ({ ...s, plans: [] }))
+    expect(await addOn(u.d)).toBe("Drips isn't sold with your Pro plan. Change to Pro in Manage billing, then add it.")
+  })
+
+  test('Confirm refused: already_added refreshes; another refusal says the server\'s words; offline keeps the price', async () => {
+    const t = await subscribed()
+    await addOn(t.d)
+    t.server.offline = true
+    expect(await confirmAddOn(t.d)).toBe('Could not reach Glyphh. Check your connection and try again.')
+    expect(t.state().quote).not.toBeNull()
+    t.server.offline = false
+    t.server.adds.push({ status: 409, body: refusalBody('E_CONFLICT', 'Your org has the Drips add-on already.', { reason: 'already_added' }) })
+    t.server.licence = PRO_ADDED
+    expect(await confirmAddOn(t.d)).toBe('Your org has Drips already.')
+    const u = await subscribed()
+    await addOn(u.d)
+    u.server.adds.push({ status: 409, body: refusalBody('E_CONFLICT', "Your org isn't subscribed: start with checkout.", { reason: 'not_subscribed' }) })
+    expect(await confirmAddOn(u.d)).toBe("Your org isn't subscribed: start with checkout.")
+  })
+
+  test('nothing to confirm, Cancel, signed out, offline, a bad preview, another refusal', async () => {
+    const t = await subscribed()
+    expect(await confirmAddOn(t.d)).toBe('Nothing to confirm: add Drips in /drips first.')
+    await addOn(t.d)
+    await cancel(t.d)
+    expect(t.state().quote).toBeNull()
+    expect(pageStatus(t.state(), T0).quote).toBeNull()
+    t.server.previews.push({ status: 200, body: { mod: 'drips', prorated_cents: 'x' } })
+    expect(await addOn(t.d)).toBe('The Glyphh server answered 200.')
+    t.server.previews.push({ status: 422, body: refusalBody('E_INVALID', 'No add-on on sale.', { reason: 'no_addon' }) })
+    expect(await addOn(t.d)).toBe('No add-on on sale.')
+    t.server.offline = true
+    expect(await addOn(t.d)).toBe('Could not reach Glyphh. Check your connection and try again.')
+    expect(await addOn(fresh('signed-out').d)).toContain('Sign in to Glyphh: check the code BCDF-GHJK')
+    expect(await confirmAddOn(fresh('signed-out').d)).toContain('Sign in to Glyphh: check the code BCDF-GHJK')
+  })
+
+  test('a credit or nothing now reads so; another currency by its code', async () => {
+    const t = await subscribed()
+    t.server.previews.length = 0
+    t.server.previews.push({ status: 200, body: { ...PREVIEW, prorated_cents: 0 } }, { status: 200, body: { ...PREVIEW, prorated_cents: -150, currency: 'eur', monthly_cents: 250 } })
+    expect(await addOn(t.d)).toBe('Add Drips: nothing now, then $2/month. Confirm in /drips, or /drips add confirm.')
+    expect(await addOn(t.d)).toBe('Add Drips: a 1.50 EUR credit now, then 2.50 EUR/month. Confirm in /drips, or /drips add confirm.')
+  })
+
+  test('not sold as an add-on (no catalog entry): Upgrade goes to the plan that has it, as before', async () => {
+    const { d, server } = fresh('none')
+    server.addons = { status: 200, body: [addonOf('programs')] }
+    await load(d)
+    expect(await addOn(d)).toBe('Finish checkout (opened in the browser pane): Drips updates on its own.')
+    expect(server.asked('/v1/billing/addons/preview')).toHaveLength(0)
+    expect(server.asked('/v1/billing/checkout')[0]!.body).toEqual({ plan: 'Pro', seats: 1 })
   })
 })

@@ -8,7 +8,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, Timer } from 'claude-code'
 
 import type { HelperInfo } from '../../types'
-import { access, gate, INITIAL, refusal } from '../licence/access.ts'
+import { gateOf, INITIAL, refusal } from '../licence/access.ts'
 import { BUILTIN_EFFECT_LIST, BUILTIN_EFFECTS } from './effects.ts'
 import { createFun } from './fun.ts'
 import { eventsOf, fullscreenHost, prepareOverlay, type FullscreenDeps, type Prepared } from './fullscreen.ts'
@@ -118,7 +118,7 @@ async function hostOf($: EngineInterface, m: Mod, preview = false): Promise<Host
 
 /** Why effects may not play now (signed out, not in the plan), or null. */
 async function refused($: EngineInterface): Promise<string | null> {
-  return gate(access(await read($, account), await $.clock.now()))
+  return gateOf(await read($, account), await $.clock.now())
 }
 
 /** Why saving `name` would pass the plan's `custom_drips` limit (a new name
@@ -255,7 +255,7 @@ async function registerAll($: EngineInterface): Promise<void> {
     argumentHint: '<recipe> | list | save <name> <recipe> | delete <name> | stop',
     immediate: true,
   })
-  await $.command.register({ name: 'drips', description: 'Open the Drips page: your saved drips, and an editor; signin or signout of Glyphh', argumentHint: '[signin | signout]' })
+  await $.command.register({ name: 'drips', description: 'Open the Drips page: your saved drips, and an editor; signin or signout of Glyphh; add the Drips add-on', argumentHint: '[signin | signout | add [confirm]]' })
   await $.tool.register({
     name: 'play_drip',
     description:
@@ -313,7 +313,7 @@ export function drips(on: On, options: PluginOptions) {
   })
 
   on('command.run', { command: 'drips' }, async ($, e) => {
-    if (e.args.trim()) return { text: 'Usage: /drips [signin | signout]' }
+    if (e.args.trim()) return { text: 'Usage: /drips [signin | signout | add [confirm]]' }
     if (!(await read($, nodePath))) return { text: NODE_MISSING }
     try {
       return { text: shownText(await showPage(pageDeps($))) }

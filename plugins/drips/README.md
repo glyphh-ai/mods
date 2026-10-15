@@ -146,9 +146,16 @@ are set by the plan, and Glyphh's plans page lists them:
 | `fullscreen` | Effects over the whole screen. Without it, effects play in Claude's window |
 
 When you reach a limit, Drips says which one, and which plan lifts it, with
-an **Upgrade** button. Drips you already saved keep working. If your plan
-doesn't include Drips, the page says so and offers **Upgrade**. Until you
+an **Upgrade** button. Drips you already saved keep working. Until you
 sign in, effects don't play (`/drip list`, `delete` and `stop` still work).
+
+**Drips is an add-on.** Glyphh's plans include Workspaces; Drips is added
+to a paid plan (Pro or Team) on the same subscription, for a monthly price
+per seat. Without it, Drips says so with the price, and the page offers
+**Add it** (or run `/drips add`). On the Free plan, Add it opens checkout
+for the plan with Drips; on a paid plan, it shows what you pay now
+(prorated) and each month, and **Confirm** (or `/drips add confirm`) adds
+it. Drips opens by itself once it's added. Your org's admin adds it.
 
 **Upgrade and billing.** The Drips page shows your plan, with **Upgrade**
 and **Manage billing**. Upgrade opens Glyphh's checkout in Claude's browser pane, and

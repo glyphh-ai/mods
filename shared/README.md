@@ -15,9 +15,9 @@ copy differs from this source.
 | `server.ts` | `SERVER` and `PUBLIC_KEY` (dev values; the build swaps in the live ones from `release.json`), the shared files' names and the timings |
 | `canonical.ts` | Reads the licence keeping each number as written, and rebuilds Python's `json.dumps(sort_keys=True, separators=(",", ":"))` bytes, which the server signs |
 | `verify.ts` | Checks the licence offline with Ed25519 (`vendor/ed25519.ts`, `@noble/ed25519`, vendored with its licence). Takes keys and signatures in base64 or base64url |
-| `access.ts` | Pure: signed out, in the plan (with its limits), not in the plan, or expired; each limit's refusal line and the plan that lifts it; what the page is told |
-| `flow.ts` | The life: sign-in by device flow, the licence fetched, kept and refreshed, sign-out, Upgrade and Manage billing |
-| `hooks.tsx` | The one file with `$`: `/<mod> signin` and `/<mod> signout`, and the page's account line |
+| `access.ts` | Pure: signed out, in the plan (with its limits), not in the plan, or expired; each limit's refusal line and the plan that lifts it; an add-on's offer and price; what the page is told |
+| `flow.ts` | The life: sign-in by device flow, the licence fetched, kept and refreshed, sign-out, Upgrade, the add-on (checkout, or preview and Confirm) and Manage billing |
+| `hooks.tsx` | The one file with `$`: `/<mod> signin`, `/<mod> signout` and `/<mod> add [confirm]`, and the page's account line |
 
 - `__MOD__` in a file is written as the plugin's `MOD` (from its
   `hooks/licence/config.ts`) when it is copied: the engine reads atom
@@ -54,7 +54,25 @@ copy differs from this source.
    (seats raised to the org's when the server names them), opens Stripe's
    page and asks for the licence every 5 seconds for up to 15 minutes until
    the plan changes. An org already subscribed is sent to the billing page.
-   **Manage billing** is `POST /v1/billing/portal`. **Sign out** is
+   Checkout's seats are the org's (`GET /v1/org`), raised when the server
+   names more taken.
+7. **Add-ons.** The plans include Workspaces alone; every other mod is an
+   add-on (`GET /v1/addons`: price, per seat or flat, the plans it is
+   allowed on, whether the org has it), and the licence's `mods` is
+   Workspaces and the org's add-ons. A mod sold as one and not in `mods`
+   says "<Mod> is an add-on ($X/month per seat on <plan>). Add it in
+   /<mod>." **Add it** (`/<mod> add`) asks
+   `POST /v1/billing/addons/preview` `{ mod, action: "add" }`:
+   - not subscribed (`not_subscribed`): `POST /v1/billing/checkout`
+     `{ plan, seats, addons: [<mod>] }` for the cheapest plan that allows it,
+     opened as above, and the licence asked until the mod is in it;
+   - subscribed: the prorated amount now and the month are shown with
+     **Confirm** (`/<mod> add confirm`), which sends `POST /v1/billing/addons`
+     `{ mod, proration_date }` and refreshes the licence;
+   - not the admin (403): "Only your Glyphh org's admin can add mods.";
+     `not_on_plan` names the plan to change to; `already_added` asks for the
+     licence again.
+8. **Manage billing** is `POST /v1/billing/portal`. **Sign out** is
    `POST /v1/sign-out`, then both files go.
 
 ## Where pages open

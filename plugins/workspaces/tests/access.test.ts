@@ -122,6 +122,8 @@ describe("what the page is told: words and limits, never the token", () => {
         stream: 'The live layout page is not in your Free plan. Pro has it: Upgrade in /workspaces.',
       },
       gate: null,
+      offer: null,
+      quote: null,
       product: 'Workspaces',
       about: expect.arrayContaining([expect.stringContaining('Workspaces sets up')]),
       command: '/workspaces',
@@ -136,7 +138,7 @@ describe("what the page is told: words and limits, never the token", () => {
   })
 
   test("the page's asks: sign in, cancel, upgrade (to lift a limit of this mod), billing; anything else is passed over", () => {
-    for (const a of ['signin', 'cancel', 'upgrade', 'billing', 'upgrade:stream', 'upgrade:workspaces']) expect(pageAction(a)).toBe(a)
+    for (const a of ['signin', 'cancel', 'upgrade', 'billing', 'addon', 'confirm', 'upgrade:stream', 'upgrade:workspaces']) expect(pageAction(a)).toBe(a)
     for (const a of ['buy', 'copy', 'upgrade:custom_drips', 'upgrade:', 5, null]) expect(pageAction(a)).toBeNull()
   })
 })
