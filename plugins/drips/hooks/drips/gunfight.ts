@@ -67,19 +67,23 @@ var TURKEY=[
 "..BBBBBBBBB.....",
 "...BBBBBBB......"];
 var TCOL={O:"#e67e22",o:"#6d3a1a",Y:"#f1c40f",B:"#8e5a2a",h:"#c8d6e5",E:"#111",k:"#f39c12",r:"#e74c3c",L:"#f39c12"};
-var gobbled=false;
+var gobbled=false,TJET=false,TDIR=Math.random()<0.5?-1:1;
 function drawTurkey(t){
   var t0=t-4900;if(OUTCOME!=="both"||t0<0)return;
-  var tw=16*S,mid=W/2-tw/2,x;
-  if(t0<700)x=-tw+(mid+tw)*(t0/700);else if(t0<1300)x=mid;else x=mid+(W-mid)*((t0-1300)/600);
-  var walking=t0<700||t0>=1300,bob=walking?(Math.floor(t0/120)%2)*S:Math.round(Math.sin(t0/60))*S;
-  var y=GROUND-14*S;
-  for(var r=0;r<TURKEY.length;r++)for(var k=0;k<16;k++){var ch=TURKEY[r][k];if(ch===".")continue;
-    var lift=(r<=5&&k>=10)?bob:0;c.fillStyle=TCOL[ch];c.fillRect(x+k*S,y+r*S+lift,S,S)}
-  var step=walking&&Math.floor(t0/120)%2;
-  c.fillStyle=TCOL.L;c.fillRect(x+(4+(step?1:0))*S,y+10*S,S,3*S);c.fillRect(x+(8-(step?1:0))*S,y+10*S,S,3*S);
-  c.fillRect(x+(3+(step?1:0))*S,y+12*S,2*S,S);c.fillRect(x+(7-(step?1:0))*S,y+12*S,2*S,S);
-  if(!gobbled&&t0>=750){gobbled=true;say(mid+tw/2,y-S*10,"GOBBLE!",true)}
+  var TS=Math.round(S*1.6),tw=16*TS,th=13*TS,cx=W/2-tw/2,base=GROUND-th,x=cx,y=base,flip=false;
+  if(t0<450){var k=t0/450;y=GROUND+(base-GROUND)*Math.sin(k*Math.PI*0.75)/Math.sin(Math.PI*0.75)}
+  else if(t0<1250){y=base-Math.abs(Math.sin((t0-450)/90))*TS*1.5*(t0<800?1:0.4)}
+  else{var f=(t0-1250)/550;flip=TDIR<0;x=cx+TDIR*(W*0.7)*f*f;y=base-(W*0.25)*f*f;
+    if(Math.random()<0.8)parts.push({x:x+(TDIR>0?TS*2:tw-TS*2),y:y+TS*3+Math.random()*TS*4,vx:-TDIR*(1+Math.random()*2),vy:-1-Math.random()*2,life:1100,max:1100,size:TS*(0.8+Math.random()),col:["#e67e22","#6d3a1a","#f1c40f","#8e5a2a"][Math.floor(Math.random()*4)],g:0.06});
+    if(Math.random()<0.6)parts.push({x:x+(TDIR>0?0:tw),y:y+th*0.6,vx:-TDIR*3,vy:(Math.random()-0.5),life:300,max:300,size:TS*1.4,col:["#fff","#ffd23f","#ff7675"][Math.floor(Math.random()*3)],g:0})}
+  for(var r=0;r<TURKEY.length;r++)for(var k2=0;k2<16;k2++){var ch=TURKEY[r][k2];if(ch===".")continue;
+    var lift=(r<=5&&k2>=10&&t0>=450&&t0<1250)?Math.round(Math.sin(t0/60))*TS:0;
+    c.fillStyle=TCOL[ch];c.fillRect(flip?x+(15-k2)*TS:x+k2*TS,y+r*TS+lift,TS,TS)}
+  c.fillStyle=TCOL.L;var lx1=flip?x+(15-4)*TS:x+4*TS,lx2=flip?x+(15-8)*TS:x+8*TS;
+  var legs=t0>=1250?1:3;c.fillRect(lx1,y+10*TS,TS,legs*TS);c.fillRect(lx2,y+10*TS,TS,legs*TS);
+  if(t0<1250){c.fillRect(lx1-TS,y+12*TS,2*TS,TS);c.fillRect(lx2-TS,y+12*TS,2*TS,TS)}
+  if(!gobbled&&t0>=500){gobbled=true;say(W/2,y-TS*7,"GOBBLE!",true)}
+  if(!TJET&&t0>=1250){TJET=true;burst(x+tw/2,y+th/2,18,["#e67e22","#6d3a1a","#f1c40f","#8e5a2a"],3.5,1000);say(W/2+TDIR*TS*10,y-TS*4,"WHOOSH!",false)}
 }
 function drawRows(rows,x,y,flip,shirt){
   for(var r=0;r<rows.length;r++)for(var k=0;k<rows[r].length;k++){
