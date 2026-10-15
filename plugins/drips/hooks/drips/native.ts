@@ -73,7 +73,7 @@ export async function prepareOverlay(d: NativeDeps): Promise<Prepared> {
   if (!swiftc) return { missing: SWIFT_MISSING }
   await d.run(['/bin/mkdir', '-p', binary.slice(0, binary.lastIndexOf('/'))])
   const building = `${binary}.building`
-  const built = await d.run(compileArgv(swiftc, source, building), { timeoutMs: BUILD_MS })
+  const built = await d.run(compileArgv(source, building), { timeoutMs: BUILD_MS })
   if (built?.exitCode !== 0) return { missing: `Drips' overlay did not build: ${firstLine(built?.stderr ?? 'swiftc did not run')}` }
   const moved = await d.run(['/bin/mv', '-f', building, binary])
   if (moved?.exitCode !== 0) return { missing: `Drips' overlay could not be kept: ${firstLine(moved?.stderr ?? '')}` }

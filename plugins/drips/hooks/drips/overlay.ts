@@ -119,8 +119,13 @@ export function lineSplitter(): (piece: string) => string[] {
 /** Where the compiled overlay is kept: one binary per version of its source. */
 export const binaryPath = (home: string, digest: string) => `${home.replace(/\/$/, '')}/Library/Caches/glyphh-drips/drips-overlay-${digest}`
 
-export const compileArgv = (swiftc: string, source: string, out: string): string[] => [
-  swiftc,
+/** Compiled through xcrun, which points swiftc at the macOS SDK: swiftc run by
+ *  its own path cannot find the standard library on Command Line Tools alone. */
+export const compileArgv = (source: string, out: string): string[] => [
+  'xcrun',
+  '--sdk',
+  'macosx',
+  'swiftc',
   '-O',
   '-o',
   out,

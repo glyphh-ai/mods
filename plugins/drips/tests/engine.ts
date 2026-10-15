@@ -112,8 +112,8 @@ export function world(on: On, options: WorldOptions = {}) {
     if (cmd === '/bin/zsh') return { value: done('', 1) }
     if (cmd === 'uname') return { value: done('Darwin\n') }
     if (cmd === 'xcode-select') return { value: options.noSwift ? done('', 2, 'no developer tools') : done('/Library/Developer/CommandLineTools\n') }
-    if (cmd === 'xcrun') return { value: done('/usr/bin/swiftc\n') }
-    if (cmd === '/usr/bin/swiftc' || cmd === '/bin/mkdir' || cmd === 'open') return { value: done() }
+    if (cmd === 'xcrun' && argv[1] === '--find') return { value: done('/usr/bin/swiftc\n') }
+    if (cmd === 'xcrun' || cmd === '/bin/mkdir' || cmd === 'open') return { value: done() }
     if (cmd === '/bin/mv') {
       files.add(argv[3]!)
       return { value: done() }

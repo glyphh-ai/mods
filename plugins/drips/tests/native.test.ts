@@ -49,8 +49,8 @@ function world(opts: { platform?: string; built?: boolean; xcode?: boolean; swif
       const [cmd] = argv
       if (cmd === 'uname') return ok(`${opts.platform ?? 'Darwin'}\n`)
       if (cmd === 'xcode-select') return opts.xcode === false ? bad('no developer tools') : ok('/Library/Developer/CommandLineTools\n')
-      if (cmd === 'xcrun') return opts.swiftc === false ? bad() : ok('/usr/bin/swiftc\n')
-      if (cmd === '/usr/bin/swiftc') return opts.compiles === false ? bad('error: no such module WebKit\nmore') : ok()
+      if (cmd === 'xcrun' && argv[1] === '--find') return opts.swiftc === false ? bad() : ok('/usr/bin/swiftc\n')
+      if (cmd === 'xcrun') return opts.compiles === false ? bad('error: no such module WebKit\nmore') : ok()
       if (cmd === '/bin/mkdir' || cmd === '/bin/kill') return ok()
       if (cmd === '/bin/mv') {
         files.add(argv[3]!)
@@ -80,12 +80,12 @@ describe('preparing the overlay', () => {
     const { d, ran, files } = world()
     const bin = binaryPath('/Users/t', await digestOf(SOURCE))
     expect(await prepareOverlay(d)).toEqual({ binary: bin })
-    expect(ran).toContainEqual(['/usr/bin/swiftc', '-O', '-o', `${bin}.building`, '/mods/drips/native/overlay.swift', '-framework', 'AppKit', '-framework', 'WebKit'])
+    expect(ran).toContainEqual(['xcrun', '--sdk', 'macosx', 'swiftc', '-O', '-o', `${bin}.building`, '/mods/drips/native/overlay.swift', '-framework', 'AppKit', '-framework', 'WebKit'])
     expect(ran).toContainEqual(['/bin/mkdir', '-p', '/Users/t/Library/Caches/glyphh-drips'])
     expect(files.has(bin)).toBe(true)
     ran.length = 0
     expect(await prepareOverlay(d)).toEqual({ binary: bin })
-    expect(ran.some(a => a[0] === '/usr/bin/swiftc')).toBe(false)
+    expect(ran.some(a => a[0] === 'xcrun' && a[1] === '--sdk')).toBe(false)
   })
 
   test('not on a Mac, without the developer tools or swiftc, or when it does not build: what is missing', async () => {

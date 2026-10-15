@@ -48,7 +48,7 @@ describe("/drip over Claude's window (the default)", () => {
     expect(overlays[0]!.request.html).toContain('width:1325px;height:1138px')
     await run('drip', 'hearts')
     await until(clock, () => overlays.length > 1)
-    expect(ran.filter(a => a[0] === '/usr/bin/swiftc')).toHaveLength(1)
+    expect(ran.filter(a => a[0] === 'xcrun' && a[1] === '--sdk')).toHaveLength(1)
     expect(ran.filter(a => a[1] === 'apps')).toHaveLength(1) // the ancestors are asked once a load
     expect(windowAsks).toHaveLength(2) // the window, each effect: it may have moved
     expect(page.played).toEqual([]) // no page, and no Node needed
@@ -231,13 +231,13 @@ describe('fullscreen', () => {
     const { run, clock, ran, overlays, page } = await started($, on)
     expect(await run('drip', 'confetti')).toBe('drip: confetti')
     await until(clock, () => overlays.length > 0)
-    expect(ran.filter(a => a[0] === '/usr/bin/swiftc')).toHaveLength(1)
+    expect(ran.filter(a => a[0] === 'xcrun' && a[1] === '--sdk')).toHaveLength(1)
     expect(overlays).toHaveLength(1)
     expect(overlays[0]!.request).toMatchObject({ v: 2, frame: SCREEN, layer: 'screen', follow: null, closeAfterMs: 8000 })
     expect(overlays[0]!.request.html).toContain('width:1440px;height:900px')
     await run('drip', 'hearts')
     await until(clock, () => overlays.length > 1)
-    expect(ran.filter(a => a[0] === '/usr/bin/swiftc')).toHaveLength(1)
+    expect(ran.filter(a => a[0] === 'xcrun' && a[1] === '--sdk')).toHaveLength(1)
     expect(overlays).toHaveLength(2)
     expect(page.played).toEqual([])
   })

@@ -90,6 +90,6 @@ describe("the native overlay's protocol", () => {
     expect(digest).toMatch(/^[0-9a-f]{16}$/)
     expect(await digestOf('print(2)')).not.toBe(digest)
     expect(binaryPath('/Users/t/', digest)).toBe(`/Users/t/Library/Caches/glyphh-drips/drips-overlay-${digest}`)
-    expect(compileArgv('/usr/bin/swiftc', 'a.swift', 'out')).toEqual(['/usr/bin/swiftc', '-O', '-o', 'out', 'a.swift', '-framework', 'AppKit', '-framework', 'WebKit'])
+    expect(compileArgv('a.swift', 'out')).toEqual(['xcrun', '--sdk', 'macosx', 'swiftc', '-O', '-o', 'out', 'a.swift', '-framework', 'AppKit', '-framework', 'WebKit'])
   })
 })
