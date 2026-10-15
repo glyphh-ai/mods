@@ -39,7 +39,7 @@ jobs:
       - name: Shared licence copies match shared/licence
         run: node scripts/check-shared.mjs
       - name: Scripts' tests
-        run: node --test scripts/test/
+        run: node --test scripts/test/*.test.mjs
       - name: Each plugin's tests and validation
         run: |
           for dir in plugins/*/; do
