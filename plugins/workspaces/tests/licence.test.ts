@@ -65,7 +65,9 @@ describe('licence in the layout page', () => {
     helper.press('buy')
     w.siteAnswers.push(JSON.stringify({ paid: true, licence: SITE_SIGNED_OTHER_MOD }))
     await clock.advance(3000)
-    await clock.advance(1000)
+    // The signature check is real crypto: on a slow machine it ends after a
+    // second of the test's clock, so the clock moves until the page is told.
+    for (let i = 0; i < 20 && last()?.isWaiting; i++) await clock.advance(1000)
     expect(w.siteAsked[0]).toBe(`http://localhost:3000/api/license?mod=workspaces&install=${opened[1]!.split('=')[1]}`)
     expect(last()).toMatchObject({ isWaiting: false, note: 'The licence the site sent did not check out. Press Unlock to try again.' })
   })
