@@ -18,6 +18,8 @@
  * parent === window so the postMessage is a harmless self-send).
  */
 
+import { dripGunfight } from './gunfight.ts'
+
 // ── Close signal (see header) ───────────────────────────────
 
 const CLOSE_SIGNAL = `console.log("__drip_close__");try{if(window.parent!==window)window.parent.postMessage("__drip_close__","*")}catch(e){}`;
@@ -529,7 +531,7 @@ export const ONE_SHOT_EFFECTS: Record<string, (w: number, h: number) => string> 
   fireworks: dripFireworks, hearts: dripHearts, confetti: dripConfetti,
   stars: dripStars, rain: dripRain, bubbles: dripBubbles,
   sparkle: dripSparkle, spiral: dripSpiral, emoji: dripEmoji,
-  wave: dripWave, thumbsup: dripThumbsup, peace: dripPeace, cat: dripCat, timme: dripTimme,
+  wave: dripWave, thumbsup: dripThumbsup, peace: dripPeace, cat: dripCat, gunfight: dripGunfight, timme: dripTimme,
   matrix: wrapOneShot(dripMatrix), aurora: wrapOneShot(dripAurora),
   nebula: wrapOneShot(dripNebula), plasma: wrapOneShot(dripPlasma),
   fireflies: wrapOneShot(dripFireflies), starfield: wrapOneShot(dripStarfield),
