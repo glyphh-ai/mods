@@ -101,6 +101,21 @@
   .view .input:focus { box-shadow: inset 0 0 0 1px var(--c-accent); }
   .native { flex: 1; display: grid; place-items: center; color: var(--c-text-2); text-align: center; padding: 12px; font-size: 12px; }
   .native b { color: var(--c-text); font-weight: 500; font-size: 13px; }
+  /* The licence: a quiet line in the bar during the trial, a locked screen after it. */
+  #licence { display: flex; align-items: center; gap: 8px; margin-left: 12px; font-size: 12px; color: var(--c-text-2); }
+  .btn { border: none; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; font-weight: 500; }
+  .btn.primary, #top .btn.primary, #top .btn.primary:hover { background: var(--c-btn); color: var(--c-btn-text); }
+  .btn.secondary, #top .btn.secondary, #top .btn.secondary:hover { background: var(--c-btn-2); color: var(--c-text); }
+  #top .btn { padding: 3px 10px; }
+  .btn:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 1px; }
+  #locked { position: absolute; inset: 36px 0 0 0; z-index: 20; display: grid; place-items: center; background: var(--c-bg); padding: 24px; }
+  #locked .card { max-width: 520px; display: flex; flex-direction: column; gap: 10px; }
+  #locked h1 { margin: 0 0 4px; font-size: 18px; font-weight: 600; color: var(--c-text); }
+  #locked p { margin: 0; color: var(--c-text-2); line-height: 1.5; }
+  #locked .ended { color: var(--c-text); margin-top: 6px; }
+  #locked .row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+  #locked .btn { font-size: 13px; padding: 6px 14px; }
+  #locked .small { font-size: 12px; }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -108,6 +123,7 @@
 <div id="top"></div>
 <div id="grid"></div>
 <div id="ws" class="ws-view hidden"></div>
+<div id="locked" class="hidden"></div>
 <script>
 "use strict"
 // The session's token, put here by the server; the one-time key leaves the address.
@@ -122,6 +138,8 @@ history.replaceState(null, "", "/")
 // The workspace editor (workspaces.js), loaded beside the page with the token.
 window.WORKSPACES = {
   token: T,
+  licence: null,
+  licenceAsk: action => licenceAsk(action),
   openLayout: name => { window.WORKSPACES_EDITOR?.hide(); drawTabs(); switchTo(name) },
 }
 document.head.append(Object.assign(document.createElement("link"), { rel: "stylesheet", href: `/ws/workspaces.css?t=${T}` }))
@@ -181,6 +199,7 @@ function op(cmd) {
 function drawTabs() {
   const top = document.getElementById("top")
   top.replaceChildren()
+  if (licence?.kind === "expired") return // the locked screen: nothing to switch to
   state.layouts.forEach((l, i) => {
     const b = document.createElement("button")
     b.textContent = `${i + 1} ${l.name}`
@@ -200,7 +219,52 @@ function drawTabs() {
   const hint = document.createElement("span")
   hint.className = "hint"
   hint.textContent = "click a page to type into it · drag the lines to resize · alt+1…9 switch"
-  top.append(hint)
+  top.append(hint, licenceBar())
+}
+
+// ── The licence ─────────────────────────────────────────────────────────────
+// The mod tells the page the licence's state in words (GET /api/licence-state,
+// then the "licence" event); Unlock, Cancel and Copy licence key go back to
+// it (POST /api/licence), and the buying and checking stay in the mod.
+let licence = null
+const licenceAsk = action => api("/api/licence", { action }).catch(() => {})
+const button = (label, cls, onclick) => Object.assign(document.createElement("button"), { type: "button", className: `btn ${cls}`, textContent: label, onclick })
+const text = (tag, cls, content) => Object.assign(document.createElement(tag), { className: cls, textContent: content })
+
+/** The bar's licence line: the trial's days and Unlock, or the wait and Cancel. */
+function licenceBar() {
+  const box = Object.assign(document.createElement("div"), { id: "licence" })
+  if (!licence || licence.kind !== "trial") return box
+  if (licence.isWaiting) box.append(text("span", "", licence.note || "Finish checkout in your browser…"), button("Cancel", "secondary", () => licenceAsk("cancel")))
+  else box.append(text("span", "", licence.trial), button(`Unlock — ${licence.price}`, "primary", () => licenceAsk("buy")))
+  return box
+}
+
+/** After the trial without a licence: what Workspaces does, and Unlock. */
+function drawLocked() {
+  const locked = document.getElementById("locked")
+  const isLocked = licence?.kind === "expired"
+  locked.classList.toggle("hidden", !isLocked)
+  if (!isLocked) return locked.replaceChildren()
+  window.WORKSPACES_EDITOR?.hide()
+  park(null)
+  const card = Object.assign(document.createElement("div"), { className: "card" })
+  card.append(text("h1", "", licence.product), ...licence.about.map(line => text("p", "", line)))
+  card.append(text("p", "ended", `The ${licence.trialDays}-day trial has ended. Unlock ${licence.product} for ${licence.price}, once.`))
+  const row = Object.assign(document.createElement("div"), { className: "row" })
+  row.append(licence.isWaiting ? button("Cancel", "secondary", () => licenceAsk("cancel")) : button(`Unlock — ${licence.price}`, "primary", () => licenceAsk("buy")))
+  card.append(row)
+  if (licence.note) card.append(text("p", "small", licence.note))
+  card.append(text("p", "small", `Bought it on another machine? ${licence.command} key <licence>`))
+  locked.replaceChildren(card)
+}
+
+function setLicence(status) {
+  licence = status
+  window.WORKSPACES.licence = status
+  drawTabs()
+  drawLocked()
+  window.WORKSPACES_EDITOR?.refresh()
 }
 
 /** Parks the pages on screen that the layout about to show does not have. */
@@ -525,7 +589,8 @@ const es = new EventSource(`/events?t=${T}`)
 es.onmessage = ev => {
   const m = JSON.parse(ev.data)
   if (m.t === "state") return load()
-  if (m.t === "show") return showEditor(m.view)
+  if (m.t === "show") return licence?.kind === "expired" ? undefined : showEditor(m.view)
+  if (m.t === "licence") return setLicence(m.status)
   if (m.t === "library") return editorReady.then(() => window.WORKSPACES_EDITOR.refresh())
   if (m.t === "popup") return showPopup(m.cell, m.popup, m.url)
   if (m.t === "popup-closed") return [...document.querySelectorAll(".popup")].find(p => p._id === m.popup)?.remove()
@@ -549,9 +614,10 @@ async function load() {
   for (const p of state.pages || []) pageInfo[p.cell] = { url: p.url, title: p.title }
   draw()
 }
-load().then(() => {
+load().then(async () => {
   readFrames()
-  if (START_VIEW) showEditor(START_VIEW)
+  setLicence((await api("/api/licence-state").catch(() => ({}))).status ?? null)
+  if (START_VIEW && licence?.kind !== "expired") showEditor(START_VIEW)
 })
 
 // ── Measuring (WORKSPACES_DEBUG=1 only) ─────────────────────────────────────

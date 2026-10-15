@@ -13,7 +13,9 @@
 // /api/inbox): the shapes the person drags ({ t: "layout", name, colWidths,
 // rowHeights }), the layout they pick in the page ({ t: "active", name }), and
 // { t: "library", renamed? } once the page's workspace editor has written
-// ~/.glyphh (WORKSPACES_LIBRARY), checked by ./library.mjs. Started by hand,
+// ~/.glyphh (WORKSPACES_LIBRARY), checked by ./library.mjs. The mod's licence
+// module posts the licence's state in words (POST /api/licence-state) and
+// collects the page's Unlock, Cancel and Copy (GET /api/licence-inbox). Started by hand,
 // without a token, it picks its own and prints { t: "ready", port, token } and
 // each message as a line.
 //
@@ -77,6 +79,11 @@ let layouts = []
 let active = ""
 let library = { workspaces: [], favorites: [], choices: { models: [], efforts: [] } }
 let picking = false
+// The licence as the mod tells it (its state in words, never the licence),
+// and what the page asked of it, for the mod to collect.
+let licenceState = null
+const licenceAsks = []
+const LICENCE_ACTIONS = ["buy", "cancel", "copy"]
 const LIBRARY = process.env.WORKSPACES_LIBRARY || ""
 
 /** A file written whole or not at all: to a temporary name, then moved. */
@@ -233,6 +240,20 @@ const server = createServer(async (req, res) => {
       if (done.error) return json(res, { error: done.error }, 400)
       emit({ t: "library" })
       json(res, done)
+    } else if (route === "POST /api/licence-state") {
+      const body = await readBody(req)
+      licenceState = body?.status ?? null
+      emit({ t: "licence", status: licenceState })
+      json(res, {})
+    } else if (route === "GET /api/licence-state") {
+      json(res, { status: licenceState })
+    } else if (route === "POST /api/licence") {
+      const body = await readBody(req)
+      if (!LICENCE_ACTIONS.includes(body?.action)) return json(res, { error: "unknown action" }, 400)
+      licenceAsks.push(body.action)
+      json(res, {})
+    } else if (route === "GET /api/licence-inbox") {
+      json(res, { actions: licenceAsks.splice(0) })
     } else if (route === "POST /api/pick-folder") {
       // The Mac's own folder chooser, in front of the app that is in front.
       if (picking) return json(res, { error: "The folder chooser is already open." }, 409)

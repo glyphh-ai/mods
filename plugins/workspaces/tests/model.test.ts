@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { defaultGrid, fitCells, normalise, onceEach, sizesOf, slugOf, summaryOf, urlOf } from '../hooks/workspaces/model.ts'
+import { defaultGrid, fitCells, normalise, onceEach, sizesOf, slugOf, urlOf } from '../hooks/workspaces/model.ts'
 
 const ids = (tab: { url: string }) => `id:${tab.url}`
 
@@ -60,13 +60,6 @@ describe('workspace model', () => {
         2,
       ),
     ).toEqual([{ panel: 'files', col: 0, row: 0, col_span: 2 }, { panel: 'terminal', col: 0, row: 1, col_span: 2 }])
-  })
-
-  test('summaries', () => {
-    const file = { name: 'A', folder: null, model: null, effort: null, cols: 2, rows: 1, col_widths: [0.5, 0.5], row_heights: [1], cells: [{ panel: 'browser' as const, col: 0, row: 0, favorite: 'gmail' }, { panel: 'terminal' as const, col: 1, row: 0 }] }
-    expect(summaryOf(file, [{ id: 'gmail', name: 'Gmail', url: 'u', keep_in_panel: false }])).toBe('2 cells · Gmail, Terminal')
-    expect(summaryOf({ ...file, cells: [file.cells[0]!] }, [])).toBe('1 cell · ?')
-    expect(summaryOf({ ...file, cells: [] }, [])).toBe('No cells')
   })
 
   test('sizes: fractions that sum to 1, else even', () => {

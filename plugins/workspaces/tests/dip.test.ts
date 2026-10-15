@@ -13,7 +13,7 @@ async function started($: Engine, on: On, options?: WorldOptions, store?: Record
 
 describe('/dip', () => {
   test('lists the workspaces, switches by number, name and prefix, and back bounces', async ($, on) => {
-    const { run, open, w } = await started($, on)
+    const { run, open } = await started($, on)
     expect(await run('dip')).toBe('Workspaces: 1 Comms · 2 IDE · 3 Browse · 4 Files')
     expect(await run('dip', 'back')).toBe('No workspace to go back to yet.')
     expect(await run('dip', '1')).toBe('→ Comms  Browser ✓ · layout page ✓')
@@ -25,7 +25,6 @@ describe('/dip', () => {
     expect(await run('dip', 'back')).toStartWith('→ IDE')
     expect(await run('dip', 'nope')).toBe('No workspace "nope". Workspaces: 1 Comms · 2 IDE · 3 Browse · 4 Files')
     expect(await run('dip', '9')).toStartWith('No workspace "9"')
-    expect(w.closed).toContain('workspaces')
   })
 
   test('the first switch with pages starts the helper and opens the layout page once, by a one-time address', async ($, on) => {
@@ -250,13 +249,37 @@ describe('pane commands', () => {
 })
 
 describe('/workspaces', () => {
-  test('opens the pane; says when it cannot be placed, or what the layout page lacks; other words get the usage', async ($, on) => {
-    const { run, w } = await started($, on, { noNode: true })
-    expect(await run('workspaces')).toBe(
-      'Workspaces open.\nThe layout page needs Node.js 18 or newer (https://nodejs.org). Install it, then start a new session.',
-    )
-    w.isPlaced = false
-    expect(await run('workspaces')).toStartWith('The Workspaces pane could not be placed: no-surface')
+  test('opens the layout page on its workspace editor, in one line; an open page is switched to it', async ($, on) => {
+    const { run, helper, mcp } = await started($, on)
+    expect(await run('workspaces')).toBe('Workspaces: layout page ✓')
+    expect(mcp.filter(c => c === 'Claude_Browser.preview_start')).toHaveLength(1)
+    helper.open = 1
+    expect(await run('workspaces')).toBe('Workspaces: layout page ✓')
+    expect(helper.shown).toEqual(['workspaces'])
+    expect(mcp.filter(c => c === 'Claude_Browser.preview_start')).toHaveLength(1)
+  })
+
+  test('where the app refuses, Claude is asked to open the editor page by its one-time address', async ($, on) => {
+    const { run, asked, clock, helper } = await started($, on, { browserRefuses: true })
+    expect(await run('workspaces')).toBe('Workspaces: layout page: Claude is asked to open it')
+    await clock.settle()
+    expect(asked).toEqual([`Open this page in the browser pane (it opens once): http://127.0.0.1:${helper.alive?.port}/?k=once&view=workspaces`])
+    expect(asked[0]).not.toContain(helper.alive!.token)
+  })
+
+  test('says what the layout page lacks, outside the desktop app says so, and other words get the usage', async ($, on) => {
+    const { run } = await started($, on, { noNode: true })
+    expect(await run('workspaces')).toBe('Workspaces: The layout page needs Node.js 18 or newer (https://nodejs.org). Install it, then start a new session.')
     expect(await run('workspaces', 'hello')).toBe('Usage: /workspaces [key <licence>]')
+  })
+
+  test('outside the desktop app it says so', async ($, on) => {
+    const { run } = await started($, on, { surfaces: ['terminal'] })
+    expect(await run('workspaces')).toBe('Workspaces drives the Claude desktop app: run this in a desktop app session.')
+  })
+
+  test('with HOME unknown a toast says there is nowhere to keep workspaces', async ($, on) => {
+    const { toasts } = await started($, on, { home: null })
+    expect(toasts).toContain('Workspaces: HOME is not set: there is nowhere to keep workspaces.')
   })
 })

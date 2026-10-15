@@ -8,18 +8,16 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, Timer } from 'claude-code'
 
-import type { Choices, Entry, Favorite, HelperInfo, Note, Requirements } from '../../types'
+import type { Choices, Entry, Favorite, HelperInfo, Requirements } from '../../types'
 import { INITIAL, refusal } from '../licence/access.ts'
 import { findFile, openPage, showFile, togglePane, type App, type MenuPane } from './desktop.ts'
 import { findWorkspace, listText } from './dip.ts'
 import { load, patchWorkspace, type Disk } from './files.ts'
 import { EFFORTS } from './model.ts'
-import { WorkspaceList } from './list.tsx'
 import { findChrome, findNode, missingText, type Probe } from './requirements.ts'
 import { push, showLayout, switchTo, type Switcher } from './stream.ts'
 import { HELPER_FILES, linkTo, versionOf, type Link, type ViewerMessage } from './viewer.ts'
 
-const PANE = 'workspaces'
 const ORDER_KEY = 'workspaceOrder'
 const DESKTOP_ONLY = 'Workspaces drives the Claude desktop app: run this in a desktop app session.'
 
@@ -28,7 +26,6 @@ const entries = atom({ plugin: 'workspaces', key: 'entries' } as const, [] as En
 const favorites = atom({ plugin: 'workspaces', key: 'favorites' } as const, [] as Favorite[])
 const active = atom({ plugin: 'workspaces', key: 'active' } as const, null as string | null)
 const previous = atom({ plugin: 'workspaces', key: 'previous' } as const, null as string | null)
-const note = atom({ plugin: 'workspaces', key: 'note' } as const, null as Note | null)
 const requirements = atom({ plugin: 'workspaces', key: 'requirements' } as const, null as Requirements | null)
 const layoutTab = atom({ plugin: 'workspaces', key: 'layoutTab' } as const, null as string | null)
 const helperInfo = atom({ plugin: 'workspaces', key: 'helper' } as const, null as HelperInfo | null)
@@ -293,19 +290,13 @@ async function runPaneCommand($: EngineInterface, which: PaneCommand, arg: strin
   return togglePane(a, MENU_OF[which], !off)
 }
 
-/** The switch /dip and the list's Open make; the Workspaces pane steps aside. */
-async function dip($: EngineInterface, target: Entry): Promise<string> {
-  const said = await switchTo(switcher($), target)
-  await $.ui.close({ id: PANE })
-  return said
-}
 
 export function workspaces(on: On) {
   on('session.start', async ($, e, next) => {
     try {
       await reload($)
     } catch (err) {
-      await update($, note, (): Note => ({ text: short(err), isError: true }))
+      $.ui.toast(`Workspaces: ${short(err)}`)
     }
     const p = probe($)
     const found = { chrome: await findChrome(p, await $.env.get('HOME')), node: await findNode(p) }
@@ -318,12 +309,13 @@ export function workspaces(on: On) {
     return next(e)
   })
 
+  // The layout page on its workspace editor (after the trial, its locked screen).
   on('command.run', { command: 'workspaces' }, async ($, e) => {
     if (e.args.trim()) return { text: 'Usage: /workspaces [key <licence>]' }
-    const opened = await $.ui.open({ id: PANE, title: 'Workspaces' })
-    const missing = missingText(await read($, requirements))
-    const said = opened.isPlaced ? 'Workspaces open.' : `The Workspaces pane could not be placed: ${opened.reason}`
-    return { text: missing ? `${said}\n${missing}` : said }
+    if (!(await isDesktop($))) return { text: DESKTOP_ONLY }
+    const all = await read($, entries)
+    const name = (await read($, active)) ?? all[0]?.file.name ?? ''
+    return { text: `Workspaces: ${await showLayout(switcher($), name, 'workspaces')}` }
   })
 
   on('command.run', { command: 'dip' }, async ($, e) => {
@@ -337,7 +329,7 @@ export function workspaces(on: On) {
     const goBackTo = await read($, previous)
     const target = back ? all.find(x => x.file.name === goBackTo) : findWorkspace(all, want)
     if (!target) return { text: back ? 'No workspace to go back to yet.' : `No workspace "${want}". Workspaces: ${listText(all)}` }
-    return { text: await dip($, target) }
+    return { text: await switchTo(switcher($), target) }
   })
 
   on('command.run', { command: 'stream' }, async ($, e) => {
@@ -379,30 +371,5 @@ export function workspaces(on: On) {
     if (!want) return { result: { pages: (await helper.link.pages()).map(p => ({ page: p.cell, name: named(p.cell), url: p.url, title: p.title })) } }
     const id = favs.find(f => f.id === want || f.name.toLowerCase() === want.toLowerCase())?.id ?? want
     return { result: await helper.link.text(id) }
-  })
-
-  on('ui.render', { component: 'Pane', requestId: 'workspaces' }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
-    const all = await read($, entries)
-    const say = (text: string, isError: boolean) => update($, note, (): Note => ({ text, isError }))
-    /** A launch: refused after the trial or outside the desktop app; else `go`'s line. */
-    const launch = (go: () => Promise<string>) =>
-      void (async () => {
-        const no = await refused($)
-        if (no) return say(no, true)
-        if (!(await isDesktop($))) return say(DESKTOP_ONLY, true)
-        await say(await go(), false)
-      })()
-    return WorkspaceList(
-      { Box, Text, Button },
-      {
-        open: name => {
-          const target = all.find(x => x.file.name === name)
-          if (target) launch(() => dip($, target))
-        },
-        edit: () => launch(async () => `Editor: ${await showLayout(switcher($), (await read($, active)) ?? all[0]?.file.name ?? '', 'workspaces')}`),
-      },
-      { entries: all, favorites: await read($, favorites), note: await read($, note), active: await read($, active), missing: missingText(await read($, requirements)) },
-    )
   })
 }

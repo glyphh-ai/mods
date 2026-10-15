@@ -10,20 +10,6 @@ export const T0 = Date.parse('2026-10-14T09:00:00Z')
 export const DIR = '/home/t/.glyphh/workspaces'
 export const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
-export const PANE = {
-  plugin: 'workspaces',
-  component: 'Pane' as const,
-  requestId: 'workspaces',
-  props: {
-    title: 'Workspaces',
-    isFocused: true,
-    bodyColumns: 100,
-    placement: 'dock' as const,
-    scroll: { offset: 0, bodyRows: 40 },
-    view: {},
-  },
-  viewport: { columns: 100, rows: 42 },
-}
 
 export type WorldOptions = {
   surfaces?: string[]
@@ -58,6 +44,10 @@ export type FakeHelper = {
   /** The running helper: where it listens, its token and version; null when it is not. */
   alive: { port: string; token: string; version: string } | null
   quits: number
+  /** The licence states the mod sent the page, oldest first. */
+  licence: Record<string, unknown>[]
+  /** The page asking the licence for something (Unlock, Cancel, Copy). */
+  press(action: string): void
   /** Pages listening for updates: 0 until the page is open. */
   open: number
   say(line: object): void
@@ -74,17 +64,15 @@ export function world(on: On, options: WorldOptions = {}) {
   const commands: string[] = []
   const slash: string[] = []
   const w = {
-    isPlaced: true,
     find: '',
     copied: [] as string[],
-    closed: [] as string[],
-    opened: [] as string[],
     openExit: 0,
     /** What the site asked about a purchase, and its answers in turn. */
     siteAsked: [] as string[],
     siteAnswers: [] as string[],
   }
   const inbox: object[] = []
+  const licenceAsks: string[] = []
   const helper: FakeHelper = {
     started: [],
     layouts: [],
@@ -92,6 +80,8 @@ export function world(on: On, options: WorldOptions = {}) {
     env: [],
     alive: null,
     quits: 0,
+    licence: [],
+    press: action => void licenceAsks.push(action),
     open: 0,
     say: line => void inbox.push(line),
   }
@@ -169,6 +159,11 @@ export function world(on: On, options: WorldOptions = {}) {
     if (!alive || url.port !== alive.port) throw new Error('connection refused')
     if (e.init?.headers?.['X-Token'] !== alive.token) return { value: { ok: false, status: 403, headers: {}, text: 'forbidden' } }
     if (url.pathname === '/api/inbox') return ok({ messages: inbox.splice(0) })
+    if (url.pathname === '/api/licence-inbox') return ok({ actions: licenceAsks.splice(0) })
+    if (url.pathname === '/api/licence-state') {
+      helper.licence.push(JSON.parse(String(e.init?.body)).status)
+      return ok({})
+    }
     if (url.pathname === '/api/quit') {
       helper.alive = null
       helper.quits++
@@ -199,14 +194,6 @@ export function world(on: On, options: WorldOptions = {}) {
   on('ui.copy', (_$, e) => {
     w.copied.push(e.text)
     return { value: { isCopied: true } }
-  })
-  on('ui.open', (_$, e) => {
-    w.opened.push(e.id)
-    return { value: w.isPlaced ? { isPlaced: true } : { isPlaced: false, reason: 'no-surface' } }
-  })
-  on('ui.close', (_$, e) => {
-    w.closed.push(e.id)
-    return { value: undefined }
   })
   on('prompt.submit', (_$, e) => {
     if (options.promptFails) throw new Error('no prompt')

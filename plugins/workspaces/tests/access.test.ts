@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { DAY_MS, INITIAL, access, daysLeft, refusal, trialText } from '../hooks/licence/access.ts'
+import { DAY_MS, INITIAL, PAGE_ACTIONS, access, daysLeft, pageStatus, refusal, trialText } from '../hooks/licence/access.ts'
 
 const T0 = Date.parse('2026-10-01T09:00:00Z')
 const trial = (startedAt: number | null) => ({ ...INITIAL, trialStartedAt: startedAt })
@@ -26,8 +26,19 @@ describe('trial maths', () => {
   })
 
   test('the trial line counts days', () => {
-    expect(trialText(7)).toBe('Trial: 7 days left')
-    expect(trialText(1)).toBe('Trial: 1 day left')
+    expect(trialText(7)).toBe('Trial · 7 days left')
+    expect(trialText(1)).toBe('Trial · 1 day left')
+  })
+})
+
+describe('what the page is told', () => {
+  test('the state in words, never the licence; locked once the trial is over', () => {
+    const licensed = pageStatus({ ...trial(T0), licence: 'secret.key' }, T0)
+    expect(licensed).toMatchObject({ kind: 'licensed', trial: null })
+    expect(JSON.stringify(licensed)).not.toContain('secret.key')
+    expect(pageStatus(trial(T0), T0 + 2 * DAY_MS)).toMatchObject({ kind: 'trial', trial: 'Trial · 5 days left', price: '$5', trialDays: 7, command: '/workspaces' })
+    expect(pageStatus({ ...trial(T0), isWaiting: true, note: 'n' }, T0 + 8 * DAY_MS)).toMatchObject({ kind: 'expired', isWaiting: true, note: 'n' })
+    expect(PAGE_ACTIONS).toEqual(['buy', 'cancel', 'copy'])
   })
 })
 

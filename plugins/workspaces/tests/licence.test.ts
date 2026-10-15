@@ -3,94 +3,108 @@ import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
 
 import { DAY_MS } from '../hooks/licence/access.ts'
 import { SITE_SIGNED_OTHER_MOD } from './fakes.ts'
-import { PANE, T0, runCommand, startSession, world } from './engine.ts'
+import { T0, runCommand, startSession, world } from './engine.ts'
 
 const ENDED = 'The Workspaces trial has ended. Unlock it for $5 in /workspaces.'
 
+/** A session with the layout page's helper running, as after /stream. */
 async function started($: Engine, on: On, store: Record<string, unknown> = {}) {
   mock.store(on, store)
   const clock = mock.clock(on, { now: T0 })
   const w = world(on)
-  const fetched = w.w.siteAsked
-  const answers = w.w.siteAnswers
   await startSession($)
   const run = (command: string, args?: string) => runCommand($, command, args)
-  return { ...w, clock, run, fetched, answers, restart: () => startSession($) }
+  await run('workspaces')
+  await clock.advance(1000) // the licence's state goes to the page
+  return { ...w, clock, run, last: () => w.helper.licence.at(-1) }
 }
 
-const texts = async (ui: { findAll(q: { type: string }): Promise<{ text: string }[]> }) => (await ui.findAll({ type: 'Text' })).map(t => t.text)
+describe('licence in the layout page', () => {
+  test('during the trial the page is told the days left, once while it stays the same', async ($, on) => {
+    const { last, clock, helper } = await started($, on)
+    expect(last()).toMatchObject({ kind: 'trial', trial: 'Trial · 7 days left', isWaiting: false, price: '$5', command: '/workspaces' })
+    expect(JSON.stringify(last())).not.toContain('licence"')
+    const sent = helper.licence.length
+    await clock.advance(1000)
+    expect(helper.licence).toHaveLength(sent)
+  })
 
-describe('licence in the engine', () => {
-  for (const surface of ['terminal', 'desktop'] as const) {
-    test(`${surface}: during the trial the pane says the days left above the workspaces`, async ($, on) => {
-      const { clock } = await started($, on)
-      await clock.advance(DAY_MS * 6)
-      const ui = await $.ui.mount({ ...PANE, surface })
-      expect(await texts(ui)).toContain('Trial: 1 day left')
-      expect(await ui.find({ type: 'Button', key: 'licence-buy' })).toMatchObject({ props: { label: 'Unlock — $5' } })
-      expect(await ui.find({ type: 'Button', key: 'ws-edit' })).toBeDefined()
-    })
-  }
+  test('on day 6 the page is told 1 day is left', async ($, on) => {
+    const { last } = await started($, on, { trialStartedAt: T0 - DAY_MS * 6 })
+    expect(last()).toMatchObject({ trial: 'Trial · 1 day left' })
+  })
 
-  test('after the trial the pane sells Workspaces, and /dip and the panes refuse', async ($, on) => {
-    const { clock, run } = await started($, on)
-    await clock.advance(DAY_MS * 7)
-    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-    const shown = await texts(ui)
-    expect(shown).toContain('Workspaces sets up the Claude desktop app for a kind of work in one command.')
-    expect(shown).toContain('The 7-day trial has ended. Unlock Workspaces for $5, once.')
-    expect(await ui.find({ type: 'Button', key: 'ws-edit' })).toBeUndefined()
+  test('after the trial the page is locked; /dip, /stream, the panes and page_read refuse; /workspaces still opens it', async ($, on) => {
+    const { last, run } = await started($, on, { trialStartedAt: T0 - DAY_MS * 7 })
+    expect(last()).toMatchObject({ kind: 'expired', trial: null, about: expect.arrayContaining([expect.stringContaining('Workspaces sets up')]) })
     expect(await run('dip', 'IDE')).toBe(ENDED)
     expect(await run('dip')).toBe(ENDED)
-    expect(await run('files')).toBe(ENDED)
-    expect(await run('workspaces')).toBe('Workspaces open.')
     expect(await run('stream')).toBe(ENDED)
+    expect(await run('files')).toBe(ENDED)
     expect(((await $.tool.call({ tool: 'mcp__workspaces__page_read', input: {} } as never)) as { result?: unknown }).result).toEqual({ error: ENDED })
+    expect(await run('workspaces')).toBe('Workspaces: layout page ✓')
   })
 
   test('the trial counts from the first run, not from each session', async ($, on) => {
-    const { clock, restart, run } = await started($, on)
-    await clock.advance(DAY_MS * 7)
-    await restart()
+    const { run } = await started($, on, { trialStartedAt: T0 - DAY_MS * 7 })
+    await startSession($)
     expect(await run('dip', 'IDE')).toBe(ENDED)
   })
 
-  test('Unlock opens checkout for this install and waits; Cancel stops; a licence that does not check out is said', async ($, on) => {
-    const { clock, ran, fetched, answers } = await started($, on)
-    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-    await ui.press({ key: 'licence-buy' })
+  test("the page's Unlock opens checkout and waits; Cancel stops; a licence that does not check out is said", async ($, on) => {
+    const { clock, helper, ran, w, last } = await started($, on)
+    helper.press('buy')
+    await clock.advance(1000)
     const opened = ran.find(a => a[0] === 'open')!
     expect(opened[1]).toStartWith('https://buy.stripe.com/test_8x228k14I6BG7UHayxc7u01?client_reference_id=')
-    expect(await texts(ui)).toContain('Finish checkout in your browser: Workspaces unlocks on its own.')
-    await ui.press({ key: 'licence-cancel' })
-    expect(await ui.find({ type: 'Button', key: 'licence-buy' })).toBeDefined()
-    await clock.advance(3_000)
-    expect(fetched).toEqual([])
+    expect(last()).toMatchObject({ isWaiting: true, note: 'Finish checkout in your browser: Workspaces unlocks on its own.' })
+    helper.press('cancel')
+    await clock.advance(1000)
+    expect(last()).toMatchObject({ isWaiting: false, note: null })
 
-    await ui.press({ key: 'licence-buy' })
-    answers.push(JSON.stringify({ paid: true, licence: SITE_SIGNED_OTHER_MOD }))
-    await clock.advance(3_000)
-    const install = opened[1]!.split('=')[1]
-    expect(fetched).toEqual([`http://localhost:3000/api/license?mod=workspaces&install=${install}`])
-    expect(await texts(ui)).toContain('The licence the site sent did not check out. Press Unlock to try again.')
+    helper.press('buy')
+    w.siteAnswers.push(JSON.stringify({ paid: true, licence: SITE_SIGNED_OTHER_MOD }))
+    await clock.advance(3000)
+    await clock.advance(1000)
+    expect(w.siteAsked[0]).toBe(`http://localhost:3000/api/license?mod=workspaces&install=${opened[1]!.split('=')[1]}`)
+    expect(last()).toMatchObject({ isWaiting: false, note: 'The licence the site sent did not check out. Press Unlock to try again.' })
   })
 
   test('where the browser does not open, the checkout link is copied', async ($, on) => {
-    const { w, toasts } = await started($, on)
+    const { clock, helper, w, toasts } = await started($, on)
     w.openExit = 1
-    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-    await ui.press({ key: 'licence-buy' })
+    helper.press('buy')
+    await clock.advance(1000)
     expect(w.copied[0]).toStartWith('https://buy.stripe.com/')
     expect(toasts).toContain('The checkout link is copied: paste it into your browser.')
   })
 
+  test('Copy licence key with no licence says so; an unknown ask is passed over', async ($, on) => {
+    const { clock, helper, toasts, w } = await started($, on)
+    helper.press('copy')
+    helper.press('nonsense')
+    await clock.advance(1000)
+    expect(toasts).toContain('The licence key could not be copied here.')
+    expect(w.copied).toEqual([])
+  })
+
+  test('a helper that goes away is sent everything again once one is back', async ($, on) => {
+    const { clock, helper, run } = await started($, on)
+    const sent = helper.licence.length
+    helper.alive = null
+    await clock.advance(1000)
+    await clock.advance(1000)
+    await run('workspaces')
+    await clock.advance(1000)
+    expect(helper.licence.length).toBeGreaterThan(sent)
+  })
+
   test('/workspaces key: a key for another mod or junk does not unlock; the usage is said', async ($, on) => {
-    const { run, clock } = await started($, on)
+    const { run } = await started($, on, { trialStartedAt: T0 - DAY_MS * 8 })
     expect(await run('workspaces', `key ${SITE_SIGNED_OTHER_MOD}`)).toBe('That licence key did not check out.')
     expect(await run('workspaces', 'key junk')).toBe('That licence key did not check out.')
     expect(await run('workspaces', 'key')).toBe('Usage: /workspaces key <licence>')
     expect(await run('workspaces', 'key a b')).toBe('Usage: /workspaces key <licence>')
-    await clock.advance(DAY_MS * 8)
     expect(await run('dip')).toBe(ENDED)
   })
 

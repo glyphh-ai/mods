@@ -1,10 +1,9 @@
 // A workspace file and its grid: names, addresses, the grid a file without
 // one gets, and a file read from disk made whole (earlier versions included).
-import type { Favorite, FileCell, Panel, WorkspaceFile } from '../../types'
+import type { FileCell, Panel, WorkspaceFile } from '../../types'
 
 /** The app panes a cell can point at, as the pane lists them. */
 const PANE_PANELS = ['files', 'changes', 'terminal'] as const satisfies readonly Panel[]
-export const PANEL_LABELS: Record<Panel, string> = { browser: 'Web page', files: 'Files', changes: 'Changes', terminal: 'Terminal' }
 
 /** Grids go up to 25×25, as the layout page's editor makes them. */
 export const MAX_GRID = 25
@@ -163,12 +162,4 @@ export function normalise(raw: unknown, toFavorite: TabToFavorite): { file: Work
   }
   const isLegacy = f.tabs !== undefined || !Array.isArray(f.cells)
   return { file: { name, folder: text(f.folder), model: text(f.model), effort: text(f.effort), ...grid }, isLegacy }
-}
-
-/** A workspace's shape in a line: "3 cells · Gmail, Slack, Calendar". */
-export function summaryOf(file: WorkspaceFile, favorites: Favorite[]): string {
-  const n = file.cells.length
-  if (n === 0) return 'No cells'
-  const names = file.cells.map(c => (c.favorite ? (favorites.find(f => f.id === c.favorite)?.name ?? '?') : PANEL_LABELS[c.panel]))
-  return `${n} cell${n === 1 ? '' : 's'} · ${names.join(', ')}`
 }

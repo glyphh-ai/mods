@@ -29,7 +29,7 @@ const CLEAR_ICON = icon('<path d="M4 4l8 8"/><path d="M12 4l-8 8"/>')
 
 const root = document.getElementById("ws")
 let lib = { workspaces: [], favorites: [] }
-let page = "list" // list | edit | favorites | favorite
+let page = "list" // list | edit | favorites | favorite | licence
 let query = ""
 let draft = null // the workspace being edited
 let favDraft = null // the favourite being edited
@@ -103,7 +103,34 @@ function head(title, placeholder, onAdd) {
 
 function tabs(count) {
   const tab = (label, to) => el(`button.skills-tab${page === to ? ".active" : ""}`, { type: "button", onclick: () => go(to) }, label)
-  return el("div.skills-tabs", {}, tab("Your workspaces", "list"), tab("Favourites", "favorites"), el("div", { style: "flex:1;" }), el("span.skills-count", {}, count))
+  const licensed = window.WORKSPACES.licence?.kind === "licensed"
+  return el(
+    "div.skills-tabs",
+    {},
+    tab("Your workspaces", "list"),
+    tab("Favourites", "favorites"),
+    licensed ? tab("Licence", "licence") : null,
+    el("div", { style: "flex:1;" }),
+    el("span.skills-count", {}, count),
+  )
+}
+
+/** The licence, once bought: its state, and the key to carry to another Mac. */
+function renderLicence() {
+  const status = window.WORKSPACES.licence
+  return [
+    el("div.skills-head", {}, el("h2", {}, "Licence")),
+    tabs(""),
+    el(
+      "div.crud-inline-form",
+      {},
+      el("label.settings-label", { style: "margin-top:16px;" }, "Status"),
+      el("div.settings-hint", {}, `${status?.product ?? "Workspaces"} is unlocked on this Mac.`),
+      el("label.settings-label", { style: "margin-top:16px;" }, "Licence key"),
+      el("div.settings-hint", { style: "margin:-2px 0 8px;" }, `To use it on another Mac, copy the key and run ${status?.command ?? "/workspaces"} key <licence> there.`),
+      el("div", {}, el("button.action-btn", { type: "button", onclick: () => window.WORKSPACES.licenceAsk("copy") }, "Copy licence key")),
+    ),
+  ]
 }
 
 /** The app's mini-grid: the split structure only. */
@@ -476,7 +503,8 @@ async function removeFavorite() {
 // ── Pages ────────────────────────────────────────────────────────────────────
 
 function render() {
-  const body = { list: renderList, edit: renderEditor, favorites: renderFavorites, favorite: renderFavorite }[page]()
+  if (page === "licence" && window.WORKSPACES.licence?.kind !== "licensed") page = "list"
+  const body = { list: renderList, edit: renderEditor, favorites: renderFavorites, favorite: renderFavorite, licence: renderLicence }[page]()
   root.replaceChildren(el("div.ws-page", {}, body))
 }
 
@@ -505,6 +533,6 @@ window.WORKSPACES_EDITOR = {
   /** The library changed on disk: the lists follow (a form being filled stays). */
   async refresh() {
     await refresh()
-    if (page === "list" || page === "favorites") render()
+    if (page === "list" || page === "favorites" || page === "licence") render()
   },
 }

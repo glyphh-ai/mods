@@ -56,7 +56,7 @@ the page for you.
 | `/dip 2`, `/dip Comms`, `/dip co` | Switches to a workspace by number, by name, or by the first letters of its name |
 | `/dip back` | Returns to the workspace before; run it again to go back and forth |
 | `/stream [workspace]` | Opens the layout page in the Browser pane |
-| `/workspaces` | Opens the Workspaces pane: your workspaces, and the way to the editor |
+| `/workspaces` | Opens the layout page on its workspace editor |
 | `/workspaces key <licence>` | Unlocks Workspaces with a licence key |
 | `/files` | Shows the Files pane |
 | `/diff` | Shows the Changes pane |
@@ -85,16 +85,10 @@ Claude can read a page in the layout page only through the `page_read`
 tool. It asks first, under your permission settings, and it treats what it
 reads as untrusted content.
 
-## The Workspaces pane
-
-`/workspaces` lists your workspaces. Each one shows its shape, for example
-"3 cells · Gmail, Slack, Calendar". **Open** switches to it, the same as
-`/dip`. **Edit in layout page** opens the layout page on its workspace
-editor.
-
 ## The workspace editor
 
-In the layout page, **Workspaces…** in the top bar opens the editor.
+`/workspaces`, or **Workspaces…** in the layout page's top bar, opens the
+editor.
 
 **Your workspaces** shows each workspace as a card with a small picture of
 its grid. Click **+ Add** to make a workspace, or click a card to edit one.
@@ -132,18 +126,19 @@ again straight away.
 
 ## Trial and unlock
 
-Workspaces is free for 7 days. While the trial runs, the Workspaces pane
-shows the days left and an **Unlock — $5** button.
+Workspaces is free for 7 days. While the trial runs, the layout page's top
+bar shows the days left and an **Unlock — $5** button.
 
 When the trial ends, `/dip`, `/stream`, the pane commands and `page_read`
-stop working until you unlock. Open `/workspaces` and press
-**Unlock — $5**. Checkout opens in your browser, and Workspaces unlocks by
-itself once you've paid. It's a one-off payment, not a subscription.
+stop working until you unlock, and the layout page shows what Workspaces
+does with **Unlock — $5**. Open it with `/workspaces`. Checkout opens in
+your browser, and Workspaces unlocks by itself once you've paid. It's a
+one-off payment, not a subscription.
 
 The licence is checked on your machine, so after you unlock, Workspaces
-never needs to contact a server again. To use it on another machine, press
-**Copy licence key** in the Workspaces pane, then run
-`/workspaces key <licence>` on the other machine.
+never needs to contact a server again. To use it on another machine, open
+**Licence** in the workspace editor and press **Copy licence key**, then
+run `/workspaces key <licence>` on the other machine.
 
 ## Where things are kept
 

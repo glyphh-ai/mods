@@ -1,6 +1,6 @@
 // What the licence allows now: licensed, a trial with days left, or neither.
 import type { LicenceState } from '../../types'
-import { MOD, PRICE, PRODUCT, TRIAL_DAYS } from './config.ts'
+import { ABOUT, MOD, PRICE, PRODUCT, TRIAL_DAYS } from './config.ts'
 
 export const DAY_MS = 86_400_000
 
@@ -28,4 +28,37 @@ export function refusal(state: LicenceState, now: number): string | null {
     : null
 }
 
-export const trialText = (days: number) => `Trial: ${days} day${days === 1 ? '' : 's'} left`
+export const trialText = (days: number) => `Trial · ${days} day${days === 1 ? '' : 's'} left`
+
+/** What a page shows of the licence: its state in words, never the licence. */
+export type PageStatus = {
+  kind: Access['kind']
+  /** The trial's line ("Trial · 3 days left"), while it runs. */
+  trial: string | null
+  isWaiting: boolean
+  note: string | null
+  product: string
+  price: string
+  trialDays: number
+  about: readonly string[]
+  command: string
+}
+
+export function pageStatus(state: LicenceState, now: number): PageStatus {
+  const a = access(state, now)
+  return {
+    kind: a.kind,
+    trial: a.kind === 'trial' ? trialText(a.daysLeft) : null,
+    isWaiting: state.isWaiting,
+    note: state.note,
+    product: PRODUCT,
+    price: PRICE,
+    trialDays: TRIAL_DAYS,
+    about: ABOUT,
+    command: `/${MOD}`,
+  }
+}
+
+/** What a page may ask of the licence. */
+export const PAGE_ACTIONS = ['buy', 'cancel', 'copy'] as const
+export type PageAction = (typeof PAGE_ACTIONS)[number]

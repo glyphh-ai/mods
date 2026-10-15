@@ -30,9 +30,6 @@ export type WorkspaceFile = {
 /** A workspace as read: its file and the slug the file is named by. */
 export type Entry = { slug: string; file: WorkspaceFile }
 
-/** The pane's last word: what an action did, or why not. */
-export type Note = { text: string; isError: boolean }
-
 /** What the editor offers for a workspace's model and effort: the /config
  *  menu's model row's values, and /effort's levels. */
 export type Choices = { models: string[]; efforts: string[] }
@@ -65,7 +62,6 @@ declare module 'claude-code' {
       active: string | null
       /** The workspace before the last switch: where `/dip back` goes. */
       previous: string | null
-      note: Note | null
       requirements: Requirements | null
       helper: HelperInfo | null
       choices: Choices
