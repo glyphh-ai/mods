@@ -253,13 +253,12 @@ describe('the Glyphh plan', () => {
     expect(page.licence.at(-1)).toMatchObject({ kind: 'signed-out', gate: SIGNED_OUT, plan: null, product: 'Drips', command: '/drips' })
   })
 
-  test('a plan without Drips refuses with Upgrade; an expired licence asks to sign in again', async ($, on) => {
+  test('a plan without Drips refuses with Upgrade, offline too (the licence kept still says so)', async ($, on) => {
     const none = await started($, on, {}, { account: 'none' })
     expect(await none.run('drip', 'confetti')).toBe(NOT_IN_PLAN)
-    none.server.licence = (await import('./licences.ts')).PRO_EXPIRED
     none.server.offline = true
     await startSession($)
-    expect(await none.run('drip', 'confetti')).toBe(NOT_IN_PLAN) // the file still says Free without Drips
+    expect(await none.run('drip', 'confetti')).toBe(NOT_IN_PLAN)
   })
 
   test('an expired Pro licence (offline) closes Drips until signed in again', async ($, on) => {
