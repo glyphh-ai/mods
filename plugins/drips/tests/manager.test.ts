@@ -12,6 +12,7 @@ function world(customs: Record<string, string> = {}) {
   const shown: string[] = []
   const closed: string[] = []
   const reported: unknown[] = []
+  const changes: string[][] = []
   const ends = new Map<string, () => void>()
   const w = { failOneShot: false, failPersistent: false, hold: null as Promise<void> | null }
   const host: Host = {
@@ -37,6 +38,7 @@ function world(customs: Record<string, string> = {}) {
     customs: () => readCustoms(store),
     after: (ms, fn) => void timers.push({ ms, fn }),
     report: err => void reported.push(err),
+    changed: () => void changes.push([...manager.running()]),
   })
   /** Fires every timer due by `ms`, in order. */
   const run = async (ms = Infinity) => {
@@ -46,7 +48,7 @@ function world(customs: Record<string, string> = {}) {
     }
     await flush()
   }
-  return { manager, store, timers, shown, closed, reported, ends, w, host, hostOf, run, asked: () => hostAsked }
+  return { manager, store, timers, shown, closed, reported, changes, ends, w, host, hostOf, run, asked: () => hostAsked }
 }
 
 describe('/drip, as the app executes it', () => {
@@ -108,6 +110,19 @@ describe('/drip, as the app executes it', () => {
     expect(await manager.execute(hostOf, 'stop')).toBe('stopped all persistent effects')
     expect(closed).toEqual(['aurora', 'plasma'])
     expect(manager.running()).toEqual([])
+  })
+
+  test('each persistent effect started or ended is told: fired again, stopped, ended by itself, failed', async () => {
+    const { manager, hostOf, changes, ends, w } = world()
+    await manager.execute(hostOf, '-1 aurora')
+    await manager.execute(hostOf, '-1 aurora')
+    await manager.execute(hostOf, '-1 plasma')
+    ends.get('plasma')!()
+    await manager.execute(hostOf, '-1 nebula')
+    await manager.execute(hostOf, 'stop')
+    w.failPersistent = true
+    await manager.execute(hostOf, '-1 matrix').catch(() => undefined)
+    expect(changes).toEqual([['aurora'], [], ['plasma'], [], ['nebula'], [], []])
   })
 
   test('list, save, delete answer without asking for a host', async () => {

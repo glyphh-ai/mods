@@ -1,5 +1,6 @@
 // The mod's /config rows (plugin.json `userConfig`), as `register` receives
-// them: where effects play, and the two optional fun hooks (off unless set).
+// them: where effects play, the Drips button by the prompt (on unless set
+// off), and the two optional fun hooks (off unless set).
 //
 // `display` is claude-window (the default) or fullscreen: the native overlay
 // over Claude's window, or over the whole screen. A claude-window stored
@@ -17,9 +18,11 @@ export type Settings = {
   confettiAfterLongTurn: boolean
   /** A matrix rain while Claude's tools run. */
   matrixWhileTools: boolean
+  /** The Drips button in the hint line under the prompt. */
+  button: boolean
 }
 
-export const DEFAULT_SETTINGS: Settings = { display: 'claude-window', confettiAfterLongTurn: false, matrixWhileTools: false }
+export const DEFAULT_SETTINGS: Settings = { display: 'claude-window', confettiAfterLongTurn: false, matrixWhileTools: false, button: true }
 
 export const DISPLAYS: readonly Display[] = ['claude-window', 'fullscreen']
 
@@ -33,5 +36,6 @@ export function settingsOf(options: PluginOptions): Settings {
     display: displayOf(options.display),
     confettiAfterLongTurn: options.confetti_after_long_turn === true,
     matrixWhileTools: options.matrix_while_tools === true,
+    button: options.button !== false,
   }
 }

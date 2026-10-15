@@ -4,7 +4,8 @@
 // page's helper (helper/server.mjs), detached so it outlives the mod's
 // reloads, and the native overlay (native/overlay.swift), one process per
 // effect, over Claude's window or the whole screen. Where effects play is the
-// /config row `display`.
+// /config row `display`. The Drips button sits in the hint line under the
+// prompt; pressed, a row of quick plays opens above the prompt.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, Timer } from 'claude-code'
 
@@ -25,6 +26,10 @@ const account = atom({ plugin: 'drips', key: 'account' } as const, INITIAL)
 const helperInfo = atom({ plugin: 'drips', key: 'helper' } as const, null as HelperInfo | null)
 const pageTab = atom({ plugin: 'drips', key: 'pageTab' } as const, null as string | null)
 const nodePath = atom({ plugin: 'drips', key: 'node' } as const, null as string | null)
+const bandOpen = atom({ plugin: 'drips', key: 'bandOpen' } as const, false)
+
+/** The effects the row above the prompt offers first, before the saved drips. */
+export const QUICK_EFFECTS = ['fireworks', 'confetti', 'hearts', 'stars']
 
 const TOOL_PREFIX = 'mcp__drips__'
 const NOT_A_RECIPE = ['save', 'delete', 'list']
@@ -93,6 +98,7 @@ function build($: EngineInterface): Mod {
     customs: () => readCustoms(store($)),
     after: (ms, fn) => void $.clock.after(ms, fn),
     report,
+    changed: () => $.ui.invalidate('ui.render'), // the row's Stop comes and goes
   })
   const m: Mod = { manager, native: null, target: null, fun: null as never }
   m.fun = createFun(
@@ -182,6 +188,7 @@ async function helperVersion($: EngineInterface): Promise<string> {
 
 /** The page's saved recipes and effects, sent to the helper. */
 async function pushLibrary($: EngineInterface): Promise<void> {
+  $.ui.invalidate('ui.render') // the row above the prompt lists them too
   await helper?.library({ drips: await listCustoms(store($)), effects: BUILTIN_EFFECTS, display: settings.display })
 }
 
@@ -277,6 +284,21 @@ function startHelper($: EngineInterface): Promise<Link> {
   return starting
 }
 
+// ── The Drips button and its row ────────────────────────────────────────────
+
+/** A play from the row: the plan's gate first, then the same path as /drip. */
+async function bandPlay($: EngineInterface, recipe: string): Promise<void> {
+  const no = await refused($)
+  if (no) return $.ui.toast(no)
+  const m = modOf($)
+  await m.manager.execute(() => hostOf($, m), recipe).catch(err => void (err instanceof Unavailable || $.ui.toast(`Drips: ${short(err)}`)))
+}
+
+async function bandOpenPage($: EngineInterface): Promise<void> {
+  if (!(await read($, nodePath))) return $.ui.toast(NODE_MISSING)
+  await showPage(pageDeps($)).catch(err => $.ui.toast(`Drips page ✗ ${short(err)}`))
+}
+
 // ── Hooks ───────────────────────────────────────────────────────────────────
 
 async function registerAll($: EngineInterface): Promise<void> {
@@ -355,21 +377,68 @@ export function drips(on: On, options: PluginOptions) {
 
   on('tool.call', { tool: 'mcp__drips__play_drip' }, async ($, e) => {
     const no = await refused($)
-    if (no) return { result: { error: no } }
+    if (no) return { result: `Not played: ${no}` }
     const recipe = String((e.input as { recipe?: unknown } | undefined)?.recipe ?? '').trim()
-    if (NOT_A_RECIPE.includes(recipe.split(/\s+/)[0]?.toLowerCase() ?? '')) return { result: { error: 'play_drip takes a recipe or "stop"; list_drips lists the effects.' } }
+    if (NOT_A_RECIPE.includes(recipe.split(/\s+/)[0]?.toLowerCase() ?? '')) return { result: 'play_drip takes a recipe or "stop"; list_drips lists the effects.' }
     try {
       const m = modOf($)
-      return { result: { status: await m.manager.execute(() => hostOf($, m), recipe) } }
+      return { result: String(await m.manager.execute(() => hostOf($, m), recipe)) }
     } catch (err) {
-      return { result: { error: short(err) } }
+      return { result: `Not played: ${short(err)}` }
     }
   })
 
   on('tool.call', { tool: 'mcp__drips__list_drips' }, async ($, e) => {
     const no = await refused($)
-    if (no) return { result: { error: no } }
-    return { result: { effects: BUILTIN_EFFECT_LIST, custom: await listCustoms(store($)), running: modOf($).manager.running() } }
+    if (no) return { result: `Not played: ${no}` }
+    return { result: JSON.stringify({ effects: BUILTIN_EFFECT_LIST, custom: await listCustoms(store($)), running: modOf($).manager.running() }) }
+  })
+
+  // The Drips button, beside the engine's own hint under the prompt.
+  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
+    const line = await next(e)
+    if (!settings.button) return line
+    const { Box, Button } = $.ui.resolve(e)
+    const isOpen = await read($, bandOpen)
+    return (
+      <Box flexDirection="row" gap={2}>
+        {line}
+        <Button key="drips" label="💧 Drips" plain dimColor={!isOpen} onPress={() => update($, bandOpen, v => !v)} />
+      </Box>
+    )
+  })
+
+  // Its row above the prompt: quick plays, the saved drips, Stop while
+  // something persistent plays, ✕; the plan's offer when Drips is closed.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (!settings.button || e.props.hasSurvey || !(await read($, bandOpen))) return next(e)
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const close = <Button key="close" label="✕" plain role="dismiss" onPress={() => update($, bandOpen, () => false)} />
+    const no = await refused($)
+    if (no) {
+      return (
+        <Box flexDirection="row" gap={1}>
+          <Text dimColor>💧 {no}</Text>
+          <Button key="open" label="Open Drips" variant="primary" onPress={() => bandOpenPage($)} />
+          {close}
+        </Box>
+      )
+    }
+    const saved = await listCustoms(store($))
+    const isPlaying = modOf($).manager.running().length > 0
+    return (
+      <Box flexDirection="row" flexWrap="wrap" gap={1}>
+        <Text dimColor>💧</Text>
+        {QUICK_EFFECTS.map(effect => (
+          <Button key={`play:${effect}`} label={effect} onPress={() => bandPlay($, effect)} />
+        ))}
+        {saved.map(d => (
+          <Button key={`drip:${d.name}`} label={d.name} variant="secondary" onPress={() => bandPlay($, d.name)} />
+        ))}
+        {isPlaying ? [<Button key="stop" label="■ Stop" onPress={() => modOf($).manager.stopAll()} />] : []}
+        {close}
+      </Box>
+    )
   })
 
   // The fun hooks: each does nothing unless its /config toggle is on.

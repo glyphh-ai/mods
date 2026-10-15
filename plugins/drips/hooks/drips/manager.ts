@@ -34,6 +34,8 @@ export type ManagerDeps = {
   after(ms: number, fn: () => void): void
   /** A staggered play that failed after the command had answered. */
   report(err: unknown): void
+  /** The persistent effects on screen changed (one started or ended). */
+  changed?(): void
 }
 
 export type ExecuteOptions = { preview?: boolean }
@@ -63,6 +65,7 @@ export function createManager(d: ManagerDeps) {
 
   async function closeSlot(slot: Slot): Promise<void> {
     slot.isCancelled = true
+    d.changed?.()
     await slot.closer?.close()
   }
 
@@ -81,7 +84,9 @@ export function createManager(d: ManagerDeps) {
     const slot: Slot = { closer: null, isCancelled: false }
     persistent.set(effect, slot)
     const forget = () => {
-      if (persistent.get(effect) === slot) persistent.delete(effect)
+      if (persistent.get(effect) !== slot) return
+      persistent.delete(effect)
+      d.changed?.()
     }
     try {
       slot.closer = await host.persistent(effect, opacity, maxMs, forget)
@@ -89,6 +94,7 @@ export function createManager(d: ManagerDeps) {
       forget()
       throw err
     }
+    d.changed?.()
     if (slot.isCancelled) await slot.closer.close() // toggled off while it started
   }
 

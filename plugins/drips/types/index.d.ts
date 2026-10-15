@@ -82,6 +82,8 @@ declare module 'claude-code' {
       pageTab: string | null
       /** Node, as the session start found it (it runs the page's helper). */
       node: string | null
+      /** The quick-play row above the prompt is open (the Drips button pressed). */
+      bandOpen: boolean
     }
   }
 }

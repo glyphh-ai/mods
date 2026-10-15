@@ -58,6 +58,17 @@ page for you.
 
 `/drip` runs straight away, even while Claude is working.
 
+## The Drips button
+
+A **💧 Drips** button sits in the hint line under the prompt, in the
+terminal and in the desktop app. Press it and a row opens just above the
+prompt: **fireworks**, **confetti**, **hearts** and **stars**, then your
+saved drips, then **■ Stop** while something keeps playing, and **✕** to
+close the row. A press plays the effect the way `/drip` does, where your
+**Where effects play** setting says. If your plan doesn't include Drips, the
+row says so and **Open Drips** opens the page to add it. To hide the
+button, turn off **Drips button** under Drips in `/config`.
+
 ## Recipes
 
 A recipe is a few words, in any order:

@@ -104,10 +104,11 @@ describe('confetti after a long turn', () => {
 describe('the /config rows', () => {
   test('display defaults to Claude\'s window; the fun hooks are off unless set true', () => {
     expect(settingsOf({})).toEqual(DEFAULT_SETTINGS)
-    expect(settingsOf({ display: 'fullscreen', confetti_after_long_turn: true, matrix_while_tools: true })).toEqual({
+    expect(settingsOf({ display: 'fullscreen', confetti_after_long_turn: true, matrix_while_tools: true, button: false })).toEqual({
       display: 'fullscreen',
       confettiAfterLongTurn: true,
       matrixWhileTools: true,
+      button: false,
     })
     expect(settingsOf({ display: 'sideways', confetti_after_long_turn: 'yes' })).toEqual(DEFAULT_SETTINGS)
   })
