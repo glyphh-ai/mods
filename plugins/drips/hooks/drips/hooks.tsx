@@ -29,7 +29,7 @@ const nodePath = atom({ plugin: 'drips', key: 'node' } as const, null as string 
 const bandOpen = atom({ plugin: 'drips', key: 'bandOpen' } as const, false)
 
 /** The effects the row above the prompt offers first, before the saved drips. */
-export const QUICK_EFFECTS = ['fireworks', 'confetti', 'hearts', 'stars']
+export const QUICK_EFFECTS = ['fireworks', 'confetti', 'hearts', 'stars', 'gunfight']
 
 const TOOL_PREFIX = 'mcp__drips__'
 const NOT_A_RECIPE = ['save', 'delete', 'list']

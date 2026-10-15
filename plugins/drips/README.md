@@ -62,7 +62,7 @@ page for you.
 
 A **💧 Drips** button sits in the hint line under the prompt, in the
 terminal and in the desktop app. Press it and a row opens just above the
-prompt: **fireworks**, **confetti**, **hearts** and **stars**, then your
+prompt: **fireworks**, **confetti**, **hearts**, **stars** and **gunfight**, then your
 saved drips, then **■ Stop** while something keeps playing, and **✕** to
 close the row. A press plays the effect the way `/drip` does, where your
 **Where effects play** setting says. If your plan doesn't include Drips, the
