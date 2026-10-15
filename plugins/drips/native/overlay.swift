@@ -17,8 +17,10 @@
 //                          pointer with "found":false when it has none
 //   drips-overlay play     reads {"v":2,"html":"...","frame":{...},
 //                          "closeAfterMs":8000,"layer":"window"|"screen",
-//                          "follow":N|null} on stdin, shows the document in
-//                          a transparent, borderless, click-through window and
+//                          "follow":N|null,"interactive":false} on stdin,
+//                          shows the document in a transparent, borderless,
+//                          click-through window (with "interactive":true, a
+//                          game: one that takes the pointer and keys) and
 //                          prints {"t":"shown","pid":N}, then
 //                          {"t":"closed","why":"signal"|"timeout"|"term"|"orphan"}
 //                          as it exits; {"t":"error","message":"..."} when it
@@ -40,7 +42,10 @@
 // It closes on the document's "__drip_close__" (console.log, or a postMessage
 // to itself), after closeAfterMs (never more than 30 minutes, whatever it is
 // asked), on SIGTERM, or when the process that started it is gone. It never
-// takes focus or the pointer.
+// takes focus or the pointer, unless the request is interactive (a game):
+// then the window accepts clicks (the first one too), becomes key with the
+// app activated so the page hears Esc, and Esc closes it even if the page
+// does not.
 
 import AppKit
 import Darwin
@@ -184,6 +189,18 @@ struct PlayRequest: Decodable {
   let closeAfterMs: Double
   let layer: String
   let follow: UInt32?
+  let interactive: Bool?
+}
+
+/// A borderless window that can become key: a game's, so its page hears keys.
+final class KeyWindow: NSWindow {
+  override var canBecomeKey: Bool { true }
+  override var canBecomeMain: Bool { true }
+}
+
+/// Takes the click that activates the window, so a game's first shot counts.
+final class GameWebView: WKWebView {
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 /// Hears the document's close signal: console.log("__drip_close__") is
@@ -218,11 +235,15 @@ final class Overlay: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(_ note: Notification) {
     let r = request.frame
     let frame = NSRect(x: r.x, y: r.y, width: r.w, height: r.h)
-    let window = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+    let interactive = request.interactive == true
+    let window: NSWindow = interactive
+      ? KeyWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+      : NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
     window.isOpaque = false
     window.backgroundColor = .clear
     window.hasShadow = false
-    window.ignoresMouseEvents = true
+    window.ignoresMouseEvents = !interactive
+    window.acceptsMouseMovedEvents = interactive
     window.isReleasedWhenClosed = false
     if request.layer == "screen" {
       window.level = .screenSaver
@@ -237,7 +258,9 @@ final class Overlay: NSObject, NSApplicationDelegate {
     controller.add(CloseListener { [weak self] in self?.close("signal") }, name: "drip")
     controller.addUserScript(WKUserScript(source: closeBridge, injectionTime: .atDocumentStart, forMainFrameOnly: true))
     config.userContentController = controller
-    let web = WKWebView(frame: NSRect(origin: .zero, size: frame.size), configuration: config)
+    let web: WKWebView = interactive
+      ? GameWebView(frame: NSRect(origin: .zero, size: frame.size), configuration: config)
+      : WKWebView(frame: NSRect(origin: .zero, size: frame.size), configuration: config)
     web.setValue(false, forKey: "drawsBackground")
     web.autoresizingMask = [.width, .height]
     window.contentView = web
@@ -248,6 +271,19 @@ final class Overlay: NSObject, NSApplicationDelegate {
       Timer.scheduledTimer(withTimeInterval: 1 / followHz, repeats: true) { [weak self] _ in self?.follow(id) }
     } else {
       window.orderFrontRegardless()
+    }
+    if interactive {
+      NSApp.activate(ignoringOtherApps: true)
+      window.makeKeyAndOrderFront(nil)
+      window.makeFirstResponder(web)
+      // Esc quits the game even when the page misses it.
+      NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        if event.keyCode == 53 {
+          self?.close("signal")
+          return nil
+        }
+        return event
+      }
     }
     emit(["t": "shown", "pid": Int(getpid())])
 

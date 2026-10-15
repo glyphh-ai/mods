@@ -16,9 +16,9 @@ function world(customs: Record<string, string> = {}) {
   const ends = new Map<string, () => void>()
   const w = { failOneShot: false, failPersistent: false, hold: null as Promise<void> | null }
   const host: Host = {
-    async oneShot(effect, opacity) {
+    async oneShot(effect, opacity, level) {
       if (w.failOneShot) throw new Error('no page')
-      shown.push(`${effect}@${opacity}`)
+      shown.push(level === undefined ? `${effect}@${opacity}` : `${effect}@${opacity} L${level}`)
     },
     async persistent(effect, opacity, maxMs, onClosed) {
       if (w.hold) await w.hold
@@ -52,6 +52,27 @@ function world(customs: Record<string, string> = {}) {
 }
 
 describe('/drip, as the app executes it', () => {
+  test('a game plays once at the number as its level, 3 when none; never repeated, never persistent', async () => {
+    const { manager, hostOf, run, shown, timers } = world()
+    expect(await manager.execute(hostOf, 'missiles 7')).toBe('drip: missiles level 7')
+    expect(timers.length).toBe(1)
+    await run()
+    expect(shown).toEqual(['missiles@-1 L7'])
+    expect(await manager.execute(hostOf, 'missile')).toBe('drip: missiles level 3')
+    expect(await manager.execute(hostOf, 'missiles -1')).toBe('drip: missiles level 3')
+    await run()
+    expect(shown).toEqual(['missiles@-1 L7', 'missiles@-1 L3', 'missiles@-1 L3'])
+    expect(manager.running()).toEqual([])
+  })
+
+  test('a game beside other effects: the game once, the others repeated, no level for them', async () => {
+    const { manager, hostOf, run, shown } = world()
+    expect(await manager.execute(hostOf, 'missiles hearts 2')).toBe('drip: missiles level 2 + hearts x2')
+    await run()
+    expect(shown).toEqual(['missiles@-1 L2', 'hearts@-1', 'hearts@-1'])
+    expect(await manager.execute(hostOf, 'missiles aurora -1')).toBe('drip: missiles level 3 + aurora constant')
+  })
+
   test('one effect plays at once; the status says it', async () => {
     const { manager, hostOf, run, shown } = world()
     expect(await manager.execute(hostOf, 'confetti')).toBe('drip: confetti')

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { MAC_ONLY, SWIFT_MISSING, ancestorsOf, eventsOf, nativeHost, prepareOverlay, type NativeDeps, type Placement, type RunResult } from '../hooks/drips/native.ts'
+import { MISSILES_SAFETY_MS } from '../hooks/drips/missiles.ts'
 import { binaryPath, digestOf, type OverlayEvent } from '../hooks/drips/overlay.ts'
 import type { Target } from '../hooks/drips/target.ts'
 import { flush } from './fakes.ts'
@@ -112,11 +113,30 @@ describe('the fullscreen host', () => {
     await played
     expect(spawned[0]!.argv).toEqual(['/bin/ov', 'play'])
     const req = JSON.parse(spawned[0]!.input)
-    expect(req).toMatchObject({ v: 2, frame: { x: 0, y: 0, w: 1000, h: 500 }, closeAfterMs: 8000, layer: 'screen', follow: null })
+    expect(req).toMatchObject({ v: 2, frame: { x: 0, y: 0, w: 1000, h: 500 }, closeAfterMs: 8000, layer: 'screen', follow: null, interactive: false })
     expect(req.html).toContain('width:1000px;height:500px')
     expect(req.html).toContain('<body style="opacity:0.5">')
     children[0]!.push({ t: 'closed', why: 'signal' })
     children[0]!.push(null)
+  })
+
+  test('a game: an interactive overlay at its level with its own backstop; only games are interactive', async () => {
+    const { d, spawned, children } = world()
+    const host = nativeHost(d, '/bin/ov', FULL)
+    const played = host.oneShot('missiles', -1, 8)
+    await flush()
+    children[0]!.push({ t: 'shown', pid: 78 })
+    await played
+    const req = JSON.parse(spawned[0]!.input)
+    expect(req).toMatchObject({ layer: 'screen', interactive: true, closeAfterMs: MISSILES_SAFETY_MS })
+    expect(req.html).toContain('LEVEL=8,')
+    children[0]!.push(null)
+    const loop = host.persistent('aurora', 0.5, 1000, () => {})
+    await flush()
+    children[1]!.push({ t: 'shown', pid: 79 })
+    await loop
+    expect(JSON.parse(spawned[1]!.input).interactive).toBe(false)
+    children[1]!.push(null)
   })
 
   test('a persistent effect: its bound sent, ended by SIGTERM to its pid, told when it ends by itself', async () => {

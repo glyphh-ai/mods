@@ -27,7 +27,8 @@ describe("the native overlay's protocol", () => {
 
   test('play reads one request on stdin: its frame, layer and the window it follows; its time clamped to the cap', () => {
     const frame = { x: 0, y: 0, w: 100, h: 50 }
-    expect(JSON.parse(playRequest('<html></html>', frame, 8000, 'window', 79026))).toEqual({ v: 2, html: '<html></html>', frame, closeAfterMs: 8000, layer: 'window', follow: 79026 })
+    expect(JSON.parse(playRequest('<html></html>', frame, 8000, 'window', 79026))).toEqual({ v: 2, html: '<html></html>', frame, closeAfterMs: 8000, layer: 'window', follow: 79026, interactive: false })
+    expect(JSON.parse(playRequest('', frame, 8000, 'window', null, true)).interactive).toBe(true)
     expect(JSON.parse(playRequest('', frame, 8000, 'screen', null))).toMatchObject({ layer: 'screen', follow: null })
     expect(JSON.parse(playRequest('', frame, 99 * 60_000, 'window', null)).closeAfterMs).toBe(OVERLAY_CAP_MS)
     expect(clampMs(5)).toBe(OVERLAY_MIN_MS)

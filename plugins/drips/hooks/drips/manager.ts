@@ -3,8 +3,9 @@
 // that shows effects (Claude's window or the full screen). Counted effects
 // stagger 1500 ms apart; a persistent (`-1`) effect fired again toggles off;
 // a preview's persistent effect is bounded to 12 s; any other persistent
-// effect to PERSISTENT_CAP_MS, so nothing runs forever.
-import { BUILTIN_EFFECTS, parseDripRecipe } from './effects.ts'
+// effect to PERSISTENT_CAP_MS, so nothing runs forever. A game plays once, at
+// the recipe's number as its level, never repeated and never persistent.
+import { BUILTIN_EFFECTS, isGameEffect, parseDripRecipe } from './effects.ts'
 import { deleteCustom, saveCustom, type Store } from './library.ts'
 
 export const STAGGER_MS = 1500
@@ -20,8 +21,8 @@ export type Closer = { close(): Promise<void> }
 
 /** Where effects show. */
 export type Host = {
-  /** Plays one effect once; `opacity` is -1 when the recipe named none. */
-  oneShot(effect: string, opacity: number): Promise<void>
+  /** Plays one effect once; `opacity` is -1 when the recipe named none; `level` is a game's (1..10). */
+  oneShot(effect: string, opacity: number, level?: number): Promise<void>
   /** Starts a looping effect for at most `maxMs`; `onClosed` runs when it ends by itself. */
   persistent(effect: string, opacity: number, maxMs: number, onClosed: () => void): Promise<Closer>
 }
@@ -99,20 +100,25 @@ export function createManager(d: ManagerDeps) {
   }
 
   async function executeRaw(hostOf: () => Promise<Host>, raw: string, customs: Record<string, string>, maxMs: number): Promise<string> {
-    const { count, opacity, effects } = parseDripRecipe(raw, name => (customs[name] ? customEffects(customs[name]!) : null))
+    const { count, opacity, effects, level } = parseDripRecipe(raw, name => (customs[name] ? customEffects(customs[name]!) : null))
     const host = await hostOf()
+    const games = [...new Set(effects.filter(isGameEffect))]
+    const plain = effects.filter(e => !isGameEffect(e))
+    const gameText = games.map(g => `${g} level ${level}`)
+    let slot = 0
+    const play = (effect: string, op: number, lvl?: number) => {
+      d.after(slot++ * STAGGER_MS, () => void host.oneShot(effect, op, lvl).catch(d.report))
+    }
+    for (const game of games) play(game, opacity > 0 ? opacity : -1, level)
     if (count === -1) {
       const op = opacity > 0 ? opacity : PERSISTENT_OPACITY
-      for (const effect of effects) await firePersistent(host, effect, op, maxMs)
-      return `drip: ${effects.join(' + ')} constant`
+      for (const effect of plain) await firePersistent(host, effect, op, maxMs)
+      return `drip: ${[...gameText, ...(plain.length ? [`${plain.join(' + ')} constant`] : [])].join(' + ')}`
     }
     const op = opacity > 0 ? opacity : -1
-    for (let i = 0; i < count; i++) {
-      effects.forEach((effect, j) => {
-        d.after((i * effects.length + j) * STAGGER_MS, () => void host.oneShot(effect, op).catch(d.report))
-      })
-    }
-    return count > 1 ? `drip: ${effects.join(' + ')} x${count}` : `drip: ${effects.join(' + ')}`
+    if (plain.length) for (let i = 0; i < count; i++) for (const effect of plain) play(effect, op)
+    const plainText = plain.length ? [count > 1 ? `${plain.join(' + ')} x${count}` : plain.join(' + ')] : []
+    return `drip: ${[...gameText, ...plainText].join(' + ')}`
   }
 
   /** Ends every persistent effect. */

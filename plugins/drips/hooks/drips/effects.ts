@@ -19,6 +19,7 @@
  */
 
 import { dripGunfight } from './gunfight.ts'
+import { MISSILES_DEFAULT_LEVEL, MISSILES_SAFETY_MS, dripMissiles, missilesLevel } from './missiles.ts'
 
 // ── Close signal (see header) ───────────────────────────────
 
@@ -531,11 +532,34 @@ export const ONE_SHOT_EFFECTS: Record<string, (w: number, h: number) => string> 
   fireworks: dripFireworks, hearts: dripHearts, confetti: dripConfetti,
   stars: dripStars, rain: dripRain, bubbles: dripBubbles,
   sparkle: dripSparkle, spiral: dripSpiral, emoji: dripEmoji,
-  wave: dripWave, thumbsup: dripThumbsup, peace: dripPeace, cat: dripCat, gunfight: dripGunfight, timme: dripTimme,
+  wave: dripWave, thumbsup: dripThumbsup, peace: dripPeace, cat: dripCat, gunfight: dripGunfight, missiles: (w, h) => dripMissiles(w, h), timme: dripTimme,
   matrix: wrapOneShot(dripMatrix), aurora: wrapOneShot(dripAurora),
   nebula: wrapOneShot(dripNebula), plasma: wrapOneShot(dripPlasma),
   fireflies: wrapOneShot(dripFireflies), starfield: wrapOneShot(dripStarfield),
 };
+
+/** Interactive games: `(w, h, level) => html`, played once at a level (1..10)
+ *  in an overlay that takes the pointer and keys. Each is in ONE_SHOT_EFFECTS
+ *  too, at its default level. */
+export const GAME_EFFECTS: Record<string, (w: number, h: number, level: number) => string> = {
+  missiles: dripMissiles,
+};
+
+/** Other names an effect answers to. */
+export const EFFECT_ALIASES: Record<string, string> = { missile: "missiles" };
+
+/** An effect's own name for one of its aliases. */
+export function canonicalEffect(name: string): string {
+  return EFFECT_ALIASES[name] ?? name;
+}
+
+/** Whether `effect` is an interactive game. */
+export function isGameEffect(effect: string): boolean {
+  return canonicalEffect(effect) in GAME_EFFECTS;
+}
+
+/** A game's level when the recipe names none. */
+export const DEFAULT_GAME_LEVEL = MISSILES_DEFAULT_LEVEL;
 
 /** Flat name list (compat surface: `.drip list`, agent list_drips). 'timme' is
  *  a hidden easter egg — playable by name, never listed. */
@@ -565,7 +589,8 @@ export const BUILTIN_EFFECT_LIST: BuiltinEffectInfo[] = [
 // A recipe is whitespace-separated tokens, order-free:
 //   `-1`            → persistent (looping) run
 //   0 < n < 1       → opacity
-//   integer n ≥ 1   → repeat count (capped at 10)
+//   integer n ≥ 1   → repeat count (capped at 10); for a game, its level
+//                     (1..10, default 3): a game is never repeated
 //   anything else   → an effect name (custom names expand via `resolveEffect`)
 
 export interface ParsedDripRecipe {
@@ -574,6 +599,8 @@ export interface ParsedDripRecipe {
   /** 0..1, or -1 when the recipe named none. */
   opacity: number;
   effects: string[];
+  /** A game's level: the recipe's whole number clamped to 1..10, or 3. */
+  level: number;
 }
 
 /**
@@ -586,15 +613,16 @@ export function parseDripRecipe(raw: string, resolveEffect?: (name: string) => s
   const parts = raw.trim().split(/\s+/).filter(Boolean);
   let count = 1;
   let opacity = -1;
+  let level = DEFAULT_GAME_LEVEL;
   const effects: string[] = [];
 
   for (const p of parts) {
     const n = parseFloat(p);
     if (p === "-1") { count = -1; }
     else if (!isNaN(n) && n > 0 && n < 1) { opacity = n; }
-    else if (!isNaN(n) && Number.isInteger(n) && n > 0) { count = Math.min(n, 10); }
+    else if (!isNaN(n) && Number.isInteger(n) && n > 0) { count = Math.min(n, 10); level = missilesLevel(n); }
     else {
-      const name = p.toLowerCase();
+      const name = canonicalEffect(p.toLowerCase());
       const expanded = resolveEffect?.(name);
       if (expanded) effects.push(...expanded);
       else effects.push(name);
@@ -602,13 +630,17 @@ export function parseDripRecipe(raw: string, resolveEffect?: (name: string) => s
   }
 
   if (effects.length === 0) effects.push("fireworks");
-  return { count, opacity, effects };
+  return { count, opacity, effects, level };
 }
 
 // ── Effect-doc assembly ─────────────────────────────────────
 
-/** One-shot document (unknown names fall back to fireworks). */
-export function buildOneShotHtml(effect: string, w: number, h: number): string {
+/** One-shot document (unknown names fall back to fireworks); a game plays at
+ *  `level` (its default when none is given). */
+export function buildOneShotHtml(effect: string, w: number, h: number, level?: number): string {
+  effect = canonicalEffect(effect);
+  const game = GAME_EFFECTS[effect];
+  if (game) return game(w, h, level ?? DEFAULT_GAME_LEVEL);
   const builder = ONE_SHOT_EFFECTS[effect] || ONE_SHOT_EFFECTS.fireworks!;
   return builder(w, h);
 }
@@ -623,5 +655,7 @@ export function buildLoopHtml(effect: string, w: number, h: number, opacity: num
 
 /** Backstop teardown for a one-shot whose close signal never arrives. */
 export function oneShotSafetyMs(effect: string): number {
+  effect = canonicalEffect(effect);
+  if (effect === "missiles") return MISSILES_SAFETY_MS;
   return effect === "timme" ? 17000 : 8000;
 }

@@ -62,7 +62,7 @@ page for you.
 
 A **💧 Drips** button sits in the hint line under the prompt, in the
 terminal and in the desktop app. Press it and a row opens just above the
-prompt: **fireworks**, **confetti**, **hearts**, **stars** and **gunfight**, then your
+prompt: **fireworks**, **confetti**, **hearts**, **stars**, **gunfight** and **missiles** (level 3), then your
 saved drips, then **■ Stop** while something keeps playing, and **✕** to
 close the row. A press plays the effect the way `/drip` does, where your
 **Where effects play** setting says. If your plan doesn't include Drips, the
@@ -75,7 +75,7 @@ A recipe is a few words, in any order:
 
 - **An effect**: `fireworks`, `hearts`, `confetti`, `stars`, `rain`,
   `bubbles`, `sparkle`, `spiral`, `emoji`, `wave`, `thumbsup`, `peace`,
-  `cat`, and the backgrounds `matrix`, `aurora`, `nebula`, `plasma`,
+  `cat`, `gunfight`, the game `missiles`, and the backgrounds `matrix`, `aurora`, `nebula`, `plasma`,
   `fireflies`, `starfield`. Name several and they play one after another.
 - **A number from 1 to 10**: how many times to play them. Each effect
   starts 1.5 seconds after the one before.
@@ -86,6 +86,29 @@ A recipe is a few words, in any order:
 - **A saved drip's name**: its effects join in.
 
 `/drip` alone plays fireworks.
+
+## Missile Command
+
+`/drip missiles` (or `missile`) starts a quick game of Missile Command over
+Claude's window. Missiles streak down from the top at all angles and
+speeds, some aimed at your three turrets on the ground. Click where you
+want a blast: the nearest ready turret fires an interceptor to that point,
+and it bursts into a blast that grows, then fades. Any missile it touches
+is destroyed (and can take its neighbours with it). A missile that reaches
+the ground leaves a crater; one that hits a turret knocks it out, and with
+every turret gone the round is over. Each turret takes a moment to reload.
+
+The round ends when the wave is over (about 20 to 30 seconds), with your
+score: "Stopped 18 of 24" and a rating. **Esc** quits at once.
+
+Give a number for the level, from 1 to 10: `/drip missiles 7`. The default
+is 3. Level 1 is a gentle 12 missiles; each level brings more missiles,
+faster, more at once, a smaller blast and slower reloads; from level 7
+some split in flight. Level 10 is close to impossible. In a game the
+number is its level, not a repeat count, and a game never repeats.
+
+While a game is on, its overlay takes the mouse and keyboard (it has to,
+to hear your clicks); every other effect lets clicks through as always.
 
 ## Where effects play
 

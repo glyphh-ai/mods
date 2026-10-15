@@ -121,8 +121,8 @@ export function nativeHost(d: NativeDeps, binary: string, place: Placement): Hos
   /** Opens one overlay; resolves once it is on screen. */
   async function show(doc: (s: Screen) => Doc): Promise<Shown> {
     const s = await spot()
-    const { html, closeAfterMs } = doc(s.frame)
-    const events = d.spawn([binary, 'play'], playRequest(html, s.frame, closeAfterMs, s.layer, s.follow))[Symbol.asyncIterator]()
+    const { html, closeAfterMs, interactive } = doc(s.frame)
+    const events = d.spawn([binary, 'play'], playRequest(html, s.frame, closeAfterMs, s.layer, s.follow, interactive))[Symbol.asyncIterator]()
     const first = await events.next()
     if (first.done || first.value.t !== 'shown') {
       const said = !first.done && first.value.t === 'error' ? `: ${first.value.message}` : ''
@@ -135,8 +135,8 @@ export function nativeHost(d: NativeDeps, binary: string, place: Placement): Hos
   }
 
   return {
-    async oneShot(effect, opacity) {
-      const shown = await show(s => oneShotDoc(effect, s.w, s.h, opacity))
+    async oneShot(effect, opacity, level) {
+      const shown = await show(s => oneShotDoc(effect, s.w, s.h, opacity, level))
       void shown.closed.catch(() => undefined)
     },
     async persistent(effect, opacity, maxMs, onClosed): Promise<Closer> {

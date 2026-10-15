@@ -21,7 +21,10 @@
 //                          as it exits; {"t":"error","message":"..."} when it
 //                          cannot. It closes on the document's __drip_close__,
 //                          after closeAfterMs (clamped to OVERLAY_CAP_MS), on
-//                          SIGTERM, or when its parent is gone.
+//                          SIGTERM, or when its parent is gone. With
+//                          "interactive":true (a game) the window takes the
+//                          pointer and becomes key so the page hears clicks
+//                          and Esc; otherwise it is click-through.
 import type { Ancestor, Target } from './target.ts'
 
 export const PROTOCOL_VERSION = 2
@@ -34,7 +37,16 @@ export type Screen = { x: number; y: number; w: number; h: number }
 export type Located = { found: true; id: number; frame: Screen } | { found: false; frame: Screen }
 export type Layer = 'window' | 'screen'
 export type WindowRequest = { v: typeof PROTOCOL_VERSION; target: Target }
-export type PlayRequest = { v: typeof PROTOCOL_VERSION; html: string; frame: Screen; closeAfterMs: number; layer: Layer; follow: number | null }
+export type PlayRequest = {
+  v: typeof PROTOCOL_VERSION
+  html: string
+  frame: Screen
+  closeAfterMs: number
+  layer: Layer
+  follow: number | null
+  /** A game: the overlay takes the pointer and keys instead of letting them through. */
+  interactive: boolean
+}
 export type CloseReason = 'signal' | 'timeout' | 'term' | 'orphan'
 export type OverlayEvent = { t: 'shown'; pid: number } | { t: 'closed'; why: CloseReason } | { t: 'error'; message: string }
 
@@ -86,8 +98,8 @@ export function windowRequest(target: Target): string {
 }
 
 /** What `play` reads on stdin. */
-export function playRequest(html: string, frame: Screen, closeAfterMs: number, layer: Layer, follow: number | null): string {
-  const req: PlayRequest = { v: PROTOCOL_VERSION, html, frame, closeAfterMs: clampMs(closeAfterMs), layer, follow }
+export function playRequest(html: string, frame: Screen, closeAfterMs: number, layer: Layer, follow: number | null, interactive = false): string {
+  const req: PlayRequest = { v: PROTOCOL_VERSION, html, frame, closeAfterMs: clampMs(closeAfterMs), layer, follow, interactive: interactive === true }
   return JSON.stringify(req)
 }
 

@@ -65,6 +65,21 @@ describe('the Drips button by the prompt', () => {
     expect(overlays[0]!.request).toMatchObject({ layer: 'window', follow: CLAUDE_WINDOW.id })
   })
 
+  test('the missiles quick play: the game at level 3, in an overlay that takes clicks; fireworks stays click-through', async ($, on) => {
+    const { clock, overlays } = await started($, on)
+    const hint = await $.ui.mount({ plugin: 'drips', surface: 'desktop', component: 'PromptHint', props: HINT })
+    const band = await $.ui.mount({ plugin: 'drips', surface: 'desktop', component: 'AbovePrompt', props: BAND })
+    await hint.press({ key: 'drips' })
+    expect(QUICK_EFFECTS).toContain('missiles')
+    await band.press({ key: 'play:missiles' })
+    await until(clock, () => overlays.length > 0)
+    expect(overlays[0]!.request).toMatchObject({ layer: 'window', interactive: true })
+    expect(overlays[0]!.request.html).toContain('LEVEL=3,')
+    await band.press({ key: 'play:fireworks' })
+    await until(clock, () => overlays.length > 1)
+    expect(overlays[1]!.request).toMatchObject({ interactive: false })
+  })
+
   test('Stop shows while a saved persistent drip plays, and ends it', async ($, on) => {
     const { clock, overlays, ran } = await started($, on, { customs: { party: '-1 aurora' } })
     const hint = await $.ui.mount({ plugin: 'drips', surface: 'desktop', component: 'PromptHint', props: HINT })
