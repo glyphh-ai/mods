@@ -8,11 +8,12 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, Timer } from 'claude-code'
 
-import type { Entry, Favorite, HelperInfo, Note, Requirements } from '../../types'
+import type { Choices, Entry, Favorite, HelperInfo, Note, Requirements } from '../../types'
 import { INITIAL, refusal } from '../licence/access.ts'
 import { findFile, openPage, showFile, togglePane, type App, type MenuPane } from './desktop.ts'
 import { findWorkspace, listText } from './dip.ts'
 import { load, patchWorkspace, type Disk } from './files.ts'
+import { EFFORTS } from './model.ts'
 import { WorkspaceList } from './list.tsx'
 import { findChrome, findNode, missingText, type Probe } from './requirements.ts'
 import { push, showLayout, switchTo, type Switcher } from './stream.ts'
@@ -31,6 +32,7 @@ const note = atom({ plugin: 'workspaces', key: 'note' } as const, null as Note |
 const requirements = atom({ plugin: 'workspaces', key: 'requirements' } as const, null as Requirements | null)
 const layoutTab = atom({ plugin: 'workspaces', key: 'layoutTab' } as const, null as string | null)
 const helperInfo = atom({ plugin: 'workspaces', key: 'helper' } as const, null as HelperInfo | null)
+const choices = atom({ plugin: 'workspaces', key: 'choices' } as const, { models: [], efforts: EFFORTS } as Choices)
 
 /** The pane commands, each under its own name or, where Claude Code or
  *  another plugin has that name, its other one. */
@@ -87,6 +89,14 @@ function app($: EngineInterface): App {
       void $.clock.after(0, () => {
         $.prompt.submit({ text }).catch(() => $.ui.toast('The Browser pane is not available: allow mcp__Claude_Browser__preview_start'))
       }),
+    // A command run from inside another would wait on it: it goes after.
+    command: (name, args) =>
+      void $.clock.after(0, () => {
+        $.command
+          .run({ command: name, args } as Parameters<typeof $.command.run>[0])
+          .then(r => r.text && $.ui.toast(r.text))
+          .catch(err => $.ui.toast(`/${name} ${args}: ${short(err)}`))
+      }),
   }
 }
 
@@ -109,6 +119,7 @@ function switcher($: EngineInterface): Switcher {
     app: app($),
     entries: { get: () => read($, entries), set: async fn => void (await update($, entries, fn)) },
     favorites: { get: () => read($, favorites), set: async fn => void (await update($, favorites, fn)) },
+    choices: { get: () => read($, choices), set: async fn => void (await update($, choices, fn)) },
     active: { get: () => read($, active), set: async fn => void (await update($, active, fn)) },
     previous: { get: () => read($, previous), set: async fn => void (await update($, previous, fn)) },
     layoutTab: { get: () => read($, layoutTab), set: async fn => void (await update($, layoutTab, fn)) },
@@ -299,6 +310,9 @@ export function workspaces(on: On) {
     const p = probe($)
     const found = { chrome: await findChrome(p, await $.env.get('HOME')), node: await findNode(p) }
     await update($, requirements, () => found)
+    // The models the editor offers: the /config menu's model row, as this build has it.
+    const modelRow = (await $.config.list().catch(() => [])).find(r => r.key === 'model')
+    await update($, choices, (): Choices => ({ models: [...(modelRow?.options ?? [])], efforts: EFFORTS }))
     await reattach($, await helperVersion($)) // a reload keeps the page up
     await registerCommands($)
     return next(e)

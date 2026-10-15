@@ -50,7 +50,7 @@ export type WorldOptions = {
 /** The layout page's helper as the mod sees it: what it was sent, and a way to make it speak. */
 export type FakeHelper = {
   started: string[][]
-  layouts: { layouts: { name: string; cells: { page?: string }[] }[]; active: string; library: { workspaces: { slug: string }[]; favorites: unknown[] } }[]
+  layouts: { layouts: { name: string; cells: { page?: string }[] }[]; active: string; library: { workspaces: { slug: string }[]; favorites: unknown[]; choices: { models: string[]; efforts: string[] } } }[]
   /** The editor views the page was asked to show. */
   shown: string[]
   /** The environment the helper was started with. */
@@ -72,6 +72,7 @@ export function world(on: On, options: WorldOptions = {}) {
   const toasts: string[] = []
   const asked: string[] = []
   const commands: string[] = []
+  const slash: string[] = []
   const w = {
     isPlaced: true,
     find: '',
@@ -212,10 +213,18 @@ export function world(on: On, options: WorldOptions = {}) {
     asked.push(e.text)
     return { text: e.text }
   })
+  on('config.list', () => ({
+    value: [{ key: 'model', label: 'Model', kind: 'choice', value: 'opus', options: ['default', 'sonnet', 'opus'], provider: { plugin: 'engine', tier: 'core' }, isLocked: false }] as never,
+  }))
+  // /model and /effort as Claude Code answers them: for this session only.
+  on('command.run', { command: ['model', 'effort'] }, (_$, e) => {
+    slash.push(`/${e.command} ${e.args}`)
+    return { text: `Set ${e.command} to ${e.args} (this session only)` }
+  })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   for (const [command, text] of Object.entries(options.taken ?? {})) on('command.run', { command }, () => ({ text }))
   const json = (slug: string) => JSON.parse(files.get(`${DIR}/${slug}.json`)!)
-  return { files, open, ran, mcp, toasts, asked, commands, w, helper, json }
+  return { files, open, ran, mcp, toasts, asked, commands, slash, w, helper, json }
 }
 
 /** The session starting on the desktop, as the engine starts it. */

@@ -1,6 +1,6 @@
 // The layout page's helper as the mod sees it: the layouts it is sent, the
 // lines it prints, and the requests the mod makes of it (with the token).
-import type { Entry, Favorite, Panel } from '../../types'
+import type { Choices, Entry, Favorite, Panel } from '../../types'
 
 /** A cell as the layout page draws it; a browser cell's live page is keyed
  *  by its favourite, so one favourite is one page in every layout. */
@@ -53,8 +53,9 @@ export type Fetch = (url: string, init: { method: string; headers: Record<string
 
 export type PageInfo = { cell: string; url: string; title: string }
 
-/** The workspaces and favourites, as the layout page's editor reads them. */
-export type Library = { workspaces: Entry[]; favorites: Favorite[] }
+/** The workspaces and favourites, as the layout page's editor reads them,
+ *  and what it offers for a workspace's model and effort. */
+export type Library = { workspaces: Entry[]; favorites: Favorite[]; choices: Choices }
 
 /** The editor's two lists, the layout page's other view. */
 export type EditorView = 'workspaces' | 'favorites'

@@ -106,8 +106,12 @@ A workspace's page has:
   one of your favourites. **→ Merge** joins the selected cell with the cell
   to its right, **↓ Merge** joins it with the cell below, and **Split**
   breaks a merged cell back into single cells.
-- **Working folder**: the folder the session moves to. Leave it empty to
+- **Working folder**: the folder the session moves to. Type it, or click
+  **Browse…** to choose it in the Mac's folder chooser. Leave it empty to
   keep the current folder.
+- **Model** and **Effort**: what the session switches to when you open the
+  workspace, for this session only (as `/model` and `/effort` do). Leave
+  them on "Keep the session's…" to change nothing.
 - **Cell setup**: which favourite each web cell shows. A favourite can
   appear only once in a workspace.
 - **Save**, **Cancel**, **Delete** (Delete asks first), and **Open

@@ -1,7 +1,7 @@
 // A switch: the app's panes and folder, then the layout page: the layout
 // switched inside the page when it is open, else the page opened once in the
 // Browser pane. Works on a Switcher, closures over `$` that ./hooks.tsx hands it.
-import type { Entry, Favorite } from '../../types'
+import type { Choices, Entry, Favorite } from '../../types'
 import { applyWorkspace, closeTab, openTab, type App, type Value } from './desktop.ts'
 import { layoutsFor, type EditorView, type Link } from './viewer.ts'
 
@@ -9,6 +9,7 @@ export type Switcher = {
   app: App
   entries: Value<Entry[]>
   favorites: Value<Favorite[]>
+  choices: Value<Choices>
   active: Value<string | null>
   previous: Value<string | null>
   layoutTab: Value<string | null>
@@ -24,7 +25,7 @@ export type Switcher = {
 export async function push(s: Switcher, link: Link, name: string): Promise<void> {
   const workspaces = await s.entries.get()
   const favorites = await s.favorites.get()
-  await link.setLayouts(layoutsFor(workspaces, favorites), name, { workspaces, favorites })
+  await link.setLayouts(layoutsFor(workspaces, favorites), name, { workspaces, favorites, choices: await s.choices.get() })
 }
 
 const short = (err: unknown) => String(err).replace(/^(Hooks)?Error: /, '').slice(0, 160)

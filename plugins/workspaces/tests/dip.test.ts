@@ -171,6 +171,18 @@ describe('/stream and the layout page', () => {
     expect(await run('dip')).toBe('Workspaces: 1 Mail · 2 IDE · 3 Browse')
   })
 
+  test("a workspace's model and effort are set for this session after the switch; the editor is offered the session's models", async ($, on) => {
+    const seed = { [`${DIR}/deep.json`]: JSON.stringify({ name: 'Deep', model: 'sonnet', effort: 'high', cols: 1, rows: 1, cells: [{ panel: 'files', col: 0, row: 0 }] }) }
+    const { run, slash, toasts, clock, helper } = await started($, on, { seed })
+    expect(await run('dip', 'Deep')).toBe('→ Deep  Files ✓ · model sonnet · effort high')
+    expect(slash).toEqual([])
+    await clock.settle()
+    expect(slash).toEqual(['/model sonnet', '/effort high'])
+    expect(toasts).toContain('Set model to sonnet (this session only)')
+    await run('stream')
+    expect(helper.layouts.at(-1)?.library.choices).toEqual({ models: ['default', 'sonnet', 'opus'], efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'auto'] })
+  })
+
   test('the helper is told where ~/.glyphh is', async ($, on) => {
     const { run, helper } = await started($, on)
     await run('stream')

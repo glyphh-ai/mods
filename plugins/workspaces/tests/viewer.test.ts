@@ -4,7 +4,7 @@ import { DEFAULT_FAVORITES } from '../hooks/workspaces/defaults.ts'
 import { HELPER_FILES, layoutsFor, linkTo, parseMessage, versionOf } from '../hooks/workspaces/viewer.ts'
 import type { Entry } from '../types'
 
-const entry = (name: string, cells: Entry['file']['cells']): Entry => ({ slug: name, file: { name, folder: null, cols: 2, rows: 1, col_widths: [0.5, 0.5], row_heights: [1], cells } })
+const entry = (name: string, cells: Entry['file']['cells']): Entry => ({ slug: name, file: { name, folder: null, model: null, effort: null, cols: 2, rows: 1, col_widths: [0.5, 0.5], row_heights: [1], cells } })
 
 describe('the layout page', () => {
   test('one live page per favourite: the same favourite in two workspaces is the same page', () => {
@@ -58,7 +58,7 @@ describe('the layout page', () => {
       4100,
       'tok',
     )
-    await link.setLayouts([], 'A', { workspaces: [], favorites: [] })
+    await link.setLayouts([], 'A', { workspaces: [], favorites: [], choices: { models: [], efforts: [] } })
     expect(await link.isOpen()).toBe(true)
     expect(await link.pageUrl()).toBe('http://127.0.0.1:4100/?k=k1')
     expect(await link.pageUrl('workspaces')).toBe('http://127.0.0.1:4100/?k=k1&view=workspaces')
@@ -81,7 +81,7 @@ describe('the layout page', () => {
       'POST http://127.0.0.1:4100/api/quit',
     ])
     expect(asked.every(a => a.init.headers['X-Token'] === 'tok')).toBe(true)
-    expect(asked[0]?.init.body).toBe('{"layouts":[],"active":"A","library":{"workspaces":[],"favorites":[]}}')
+    expect(asked[0]?.init.body).toBe('{"layouts":[],"active":"A","library":{"workspaces":[],"favorites":[],"choices":{"models":[],"efforts":[]}}}')
     expect(asked[4]?.init.body).toBe('{"view":"favorites"}')
     ok = false
     await expect(link.isOpen()).rejects.toThrow('the layout page answered /api/state with an error')

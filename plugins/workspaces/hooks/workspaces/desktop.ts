@@ -21,6 +21,9 @@ export type App = {
   /** Asks Claude, as a prompt of its own once this command is done: the way
    *  round a refused tool call. */
   ask(text: string): void
+  /** Runs a slash command once the command or press in progress is done
+   *  (/model, /effort: for this session only), its answer shown as a toast. */
+  command(name: string, args: string): void
 }
 
 const MENU_PANES = { files: 'Files', changes: 'Changes', terminal: 'Terminal', browser: 'Browser' } as const
@@ -139,10 +142,19 @@ async function moveFolder(app: App, folder: string | null): Promise<void> {
   }
 }
 
-/** The app's side of a switch: the panes, then the folder, which may wait on
- *  the person's approval, so nothing waits on it. */
+/** The app's side of a switch: the panes, the session's model and effort
+ *  (when the workspace names them), then the folder, which may wait on the
+ *  person's approval, so nothing waits on it. */
 export async function applyWorkspace(app: App, ws: WorkspaceFile): Promise<string> {
   const report = await applyPanes(app, ws)
+  if (ws.model) {
+    app.command('model', ws.model)
+    report.push(`model ${ws.model}`)
+  }
+  if (ws.effort) {
+    app.command('effort', ws.effort)
+    report.push(`effort ${ws.effort}`)
+  }
   void moveFolder(app, ws.folder)
   return report.join(' · ')
 }

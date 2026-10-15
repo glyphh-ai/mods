@@ -30,7 +30,7 @@
 // between Chrome's frame and the page but the socket: measured with
 // WORKSPACES_DEBUG=1, this is how a click's picture arrives fastest.
 
-import { spawn } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { createServer } from "node:http"
@@ -40,7 +40,7 @@ import { fileURLToPath } from "node:url"
 
 import { startChrome } from "./chrome.mjs"
 import { isAllowed, isLocal, openKeys } from "./gate.mjs"
-import { checkFavorite, checkFavoriteDelete, checkWorkspace, checkWorkspaceDelete } from "./library.mjs"
+import { checkFavorite, checkFavoriteDelete, checkWorkspace, checkWorkspaceDelete, pickedFolder } from "./library.mjs"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -75,7 +75,8 @@ const KEYS = openKeys({ random: () => randomBytes(24).toString("hex") })
 
 let layouts = []
 let active = ""
-let library = { workspaces: [], favorites: [] }
+let library = { workspaces: [], favorites: [], choices: { models: [], efforts: [] } }
+let picking = false
 const LIBRARY = process.env.WORKSPACES_LIBRARY || ""
 
 /** A file written whole or not at all: to a temporary name, then moved. */
@@ -198,7 +199,9 @@ const server = createServer(async (req, res) => {
       const body = await readBody(req)
       if (Array.isArray(body?.layouts)) layouts = body.layouts
       if (typeof body?.active === "string") active = body.active
-      if (Array.isArray(body?.library?.workspaces) && Array.isArray(body?.library?.favorites)) library = body.library
+      if (Array.isArray(body?.library?.workspaces) && Array.isArray(body?.library?.favorites)) {
+        library = { workspaces: body.library.workspaces, favorites: body.library.favorites, choices: body.library.choices ?? { models: [], efforts: [] } }
+      }
       emit({ t: "state" })
       json(res, {})
     } else if (route === "POST /api/shape") {
@@ -230,6 +233,15 @@ const server = createServer(async (req, res) => {
       if (done.error) return json(res, { error: done.error }, 400)
       emit({ t: "library" })
       json(res, done)
+    } else if (route === "POST /api/pick-folder") {
+      // The Mac's own folder chooser, in front of the app that is in front.
+      if (picking) return json(res, { error: "The folder chooser is already open." }, 409)
+      picking = true
+      const script = 'tell application (path to frontmost application as text) to POSIX path of (choose folder with prompt "Choose the workspace folder")'
+      execFile("osascript", ["-e", script], { timeout: 10 * 60_000 }, (err, stdout) => {
+        picking = false
+        json(res, { path: pickedFolder({ code: err ? 1 : 0, stdout }) })
+      })
     } else if (route === "POST /api/show") {
       const body = await readBody(req)
       emit({ t: "show", view: body?.view === "favorites" ? "favorites" : "workspaces" })
@@ -285,7 +297,7 @@ function saveLibrary(path, body) {
     const kept = workspaces.filter(w => w.slug !== ok.slug && w.slug !== ok.replaces)
     const at = workspaces.findIndex(w => w.slug === (ok.replaces ?? ok.slug))
     kept.splice(at < 0 ? kept.length : at, 0, { slug: ok.slug, file: ok.file })
-    library = { workspaces: kept, favorites }
+    library = { ...library, workspaces: kept }
     say({ t: "library", ...(ok.replaces ? { renamed: { from: ok.replaces, to: ok.slug, name: ok.file.name, was: body.original } } : {}) })
     return { ok: true, name: ok.file.name }
   }
@@ -293,14 +305,14 @@ function saveLibrary(path, body) {
     const ok = checkWorkspaceDelete(String(body?.name ?? ""), workspaces)
     if (ok.error) return ok
     unlinkSync(workspacePath(ok.slug))
-    library = { workspaces: workspaces.filter(w => w.slug !== ok.slug), favorites }
+    library = { ...library, workspaces: workspaces.filter(w => w.slug !== ok.slug) }
     say({ t: "library" })
     return { ok: true }
   }
   const ok = path === "/api/favorite" ? checkFavorite(body, favorites) : checkFavoriteDelete(String(body?.id ?? ""), favorites, workspaces)
   if (ok.error) return ok
   writeAtomic(join(LIBRARY, "favorites.json"), { favorites: ok.favorites })
-  library = { workspaces, favorites: ok.favorites }
+  library = { ...library, favorites: ok.favorites }
   say({ t: "library" })
   return { ok: true, ...(ok.id ? { id: ok.id } : {}) }
 }

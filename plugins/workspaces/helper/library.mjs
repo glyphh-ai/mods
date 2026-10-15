@@ -1,5 +1,6 @@
 // library.mjs — what the workspace editor may save, checked on the server
-// before anything is written: workspaces (name, folder, grid, cells) and
+// before anything is written: workspaces (name, folder, model, effort, grid,
+// cells) and
 // favourites (name, web address, keep in panel). Pure: the mod's tests load it as the
 // server does. A workspace is { slug, file }; a favourite { id, name, url }.
 
@@ -83,7 +84,7 @@ const cleanCell = c => ({
 
 /** A workspace from the editor, checked: the file to write, where, and the
  *  old file a rename leaves behind; or the reason it cannot be saved. */
-export function checkWorkspace(input, { workspaces, favorites }) {
+export function checkWorkspace(input, { workspaces, favorites, choices = { models: [], efforts: [] } }) {
   const original = typeof input?.original === "string" ? input.original : null
   const was = original === null ? null : workspaces.find(w => w.file.name === original)
   if (original !== null && !was) return { error: `There is no workspace "${original}".` }
@@ -92,6 +93,10 @@ export function checkWorkspace(input, { workspaces, favorites }) {
   if (bad) return { error: bad }
   const folder = String(input?.folder ?? "").trim()
   if (folder && !folder.startsWith("/")) return { error: "The folder must be an absolute path, or blank." }
+  const model = String(input?.model ?? "").trim()
+  if (model && !choices.models.includes(model)) return { error: `"${model}" is not one of the models this session offers.` }
+  const effort = String(input?.effort ?? "").trim()
+  if (effort && !choices.efforts.includes(effort)) return { error: `"${effort}" is not an effort level.` }
   const { cols, rows } = input ?? {}
   if (!isWhole(cols, 1, MAX_GRID) || !isWhole(rows, 1, MAX_GRID)) return { error: `A grid is 1 to ${MAX_GRID} columns and rows.` }
   const cellsBad = cellsError(input.cells, cols, rows, favorites)
@@ -99,6 +104,8 @@ export function checkWorkspace(input, { workspaces, favorites }) {
   const file = {
     name,
     folder: folder || null,
+    model: model || null,
+    effort: effort || null,
     cols,
     rows,
     col_widths: sizes(input.col_widths, cols),
@@ -143,4 +150,12 @@ export function checkFavoriteDelete(id, favorites, workspaces) {
     return { error: `${users.join(", ")} ${one ? "still shows" : "still show"} ${fav.name}: take it out of ${one ? "that workspace" : "those workspaces"} first.` }
   }
   return { favorites: favorites.filter(f => f.id !== id) }
+}
+
+/** What the macOS folder chooser answered: the folder's POSIX path (no
+ *  trailing slash), or null when it was cancelled or failed. */
+export function pickedFolder({ code, stdout }) {
+  const path = String(stdout ?? "").trim()
+  if (code !== 0 || !path.startsWith("/")) return null
+  return path.length > 1 ? path.replace(/\/+$/, "") : path
 }

@@ -8,7 +8,7 @@ const settle = async () => {
   for (let i = 0; i < 50; i++) await Promise.resolve()
 }
 
-const ws = (cells: FileCell[], folder: string | null = null): WorkspaceFile => ({ name: 'W', folder, cols: 2, rows: 2, col_widths: [0.5, 0.5], row_heights: [0.5, 0.5], cells })
+const ws = (cells: FileCell[], folder: string | null = null, model: string | null = null, effort: string | null = null): WorkspaceFile => ({ name: 'W', folder, model, effort, cols: 2, rows: 2, col_widths: [0.5, 0.5], row_heights: [0.5, 0.5], cells })
 
 describe('View menu panes', () => {
   test('shown, hidden, or already so', async () => {
@@ -55,6 +55,14 @@ describe('applying a workspace', () => {
     f.world.menuFails = false
     f.world.clickFails.add('Files')
     expect(await applyWorkspace(f.app, ws([{ panel: 'files', col: 0, row: 0 }, { panel: 'terminal', col: 1, row: 0 }]))).toBe('Show Files ✗ cannot click Files · Terminal ✓')
+  })
+
+  test("the workspace's model and effort are set for the session, after the switch; none named, none set", async () => {
+    const f = fakeApp()
+    expect(await applyWorkspace(f.app, ws([{ panel: 'files', col: 0, row: 0 }], null, 'sonnet', 'high'))).toBe('Files ✓ · model sonnet · effort high')
+    expect(f.commands).toEqual(['/model sonnet', '/effort high'])
+    await applyWorkspace(f.app, ws([]))
+    expect(f.commands).toHaveLength(2)
   })
 
   test('the session moves to the folder, unless it is there; a refusal is said', async () => {

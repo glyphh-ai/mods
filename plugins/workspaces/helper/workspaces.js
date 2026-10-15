@@ -167,8 +167,8 @@ function renderFavorites() {
 
 function edit(w) {
   draft = w
-    ? { original: w.file.name, name: w.file.name, folder: w.file.folder ?? "", builder: G.fromFile(w.file), sizes: { cols: w.file.cols, rows: w.file.rows, col_widths: w.file.col_widths, row_heights: w.file.row_heights }, error: null }
-    : { original: null, name: "", folder: "", builder: G.initCells(2, 1), sizes: null, error: null }
+    ? { original: w.file.name, name: w.file.name, folder: w.file.folder ?? "", model: w.file.model ?? "", effort: w.file.effort ?? "", builder: G.fromFile(w.file), sizes: { cols: w.file.cols, rows: w.file.rows, col_widths: w.file.col_widths, row_heights: w.file.row_heights }, error: null }
+    : { original: null, name: "", folder: "", model: "", effort: "", builder: G.initCells(2, 1), sizes: null, error: null }
   go("edit")
 }
 
@@ -322,11 +322,23 @@ function renderEditor() {
         el("label.settings-label", { style: "margin-top:16px;" }, "Working folder (overall)"),
         el("div.settings-hint", { style: "margin:-2px 0 8px;" }, "The folder the session moves to when this workspace opens. Leave empty to keep the current folder."),
         el(
-          "div.layout-folder-row",
+          "div.ws-dir",
           {},
-          folder,
-          el("button.layout-folder-icon.clear", { type: "button", title: "Clear", html: CLEAR_ICON, onclick: () => ((draft.folder = ""), render()) }),
+          el(
+            "div.layout-folder-row",
+            {},
+            folder,
+            el("button.layout-folder-icon.clear", { type: "button", title: "Clear", html: CLEAR_ICON, onclick: () => ((draft.folder = ""), render()) }),
+          ),
+          // The app's workspace-create modal: Browse… opens the Mac's folder chooser.
+          el("button.action-btn.secondary", { type: "button", onclick: browseFolder }, "Browse\u2026"),
         ),
+        el("label.settings-label", { style: "margin-top:16px;" }, "Model (overall)"),
+        el("div.settings-hint", { style: "margin:-2px 0 8px;" }, "The model this session switches to when this workspace opens (for this session only, as /model sets it)."),
+        choice(lib.choices?.models ?? [], draft.model, "Keep the session's model", v => (draft.model = v)),
+        el("label.settings-label", { style: "margin-top:16px;" }, "Effort (overall)"),
+        el("div.settings-hint", { style: "margin:-2px 0 8px;" }, "The effort level this session switches to when this workspace opens (for this session only, as /effort sets it)."),
+        choice(lib.choices?.efforts ?? [], draft.effort, "Keep the session's effort", v => (draft.effort = v)),
         el(
           "div.settings-actions",
           { style: "margin-top:28px;" },
@@ -341,6 +353,28 @@ function renderEditor() {
   )
 }
 
+/** A drop-down of `values`, the first option leaving the setting as it is;
+ *  a value no longer offered stays shown so it is not lost silently. */
+function choice(values, current, blank, onchange) {
+  const select = el("select.settings-input", { onchange: () => onchange(select.value) })
+  select.append(el("option", { value: "", selected: !current }, blank))
+  for (const v of current && !values.includes(current) ? [current, ...values] : values) select.append(el("option", { value: v, selected: v === current }, v))
+  return select
+}
+
+/** The Mac's folder chooser; cancelled, the field keeps what it had. */
+async function browseFolder() {
+  const r = await api("/api/pick-folder", {})
+  if (!r.ok) {
+    draft.error = r.body.error ?? "The folder chooser did not open."
+    return render()
+  }
+  if (r.body.path) {
+    draft.folder = r.body.path
+    render()
+  }
+}
+
 async function saveWorkspace() {
   const b = draft.builder
   const same = draft.sizes && draft.sizes.cols === b.cols && draft.sizes.rows === b.rows
@@ -348,6 +382,8 @@ async function saveWorkspace() {
     original: draft.original,
     name: draft.name,
     folder: draft.folder,
+    model: draft.model,
+    effort: draft.effort,
     cols: b.cols,
     rows: b.rows,
     ...(same ? { col_widths: draft.sizes.col_widths, row_heights: draft.sizes.row_heights } : {}),

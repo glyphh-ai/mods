@@ -15,6 +15,10 @@ export type WorkspaceFile = {
   name: string
   /** The folder the session moves to (absolute); null leaves it where it is. */
   folder: string | null
+  /** The model and effort the session takes on a switch (for this session
+   *  only, as /model and /effort set them); null leaves them as they are. */
+  model: string | null
+  effort: string | null
   cols: number
   rows: number
   /** Column widths and row heights, as fractions; dragged in the layout page. */
@@ -28,6 +32,10 @@ export type Entry = { slug: string; file: WorkspaceFile }
 
 /** The pane's last word: what an action did, or why not. */
 export type Note = { text: string; isError: boolean }
+
+/** What the editor offers for a workspace's model and effort: the /config
+ *  menu's model row's values, and /effort's levels. */
+export type Choices = { models: string[]; efforts: string[] }
 
 /** The running layout page helper: where it listens and its token, kept in
  *  the session's memory (never on disk) so a reload of the mod finds it again. */
@@ -60,6 +68,7 @@ declare module 'claude-code' {
       note: Note | null
       requirements: Requirements | null
       helper: HelperInfo | null
+      choices: Choices
       /** The Browser pane's tab showing the layout page, kept across reloads. */
       layoutTab: string | null
     }

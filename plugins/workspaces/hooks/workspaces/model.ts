@@ -9,6 +9,10 @@ export const PANEL_LABELS: Record<Panel, string> = { browser: 'Web page', files:
 /** Grids go up to 25×25, as the layout page's editor makes them. */
 export const MAX_GRID = 25
 
+/** /effort's levels, as it lists them ("Usage: /effort <low|medium|high|xhigh|max|auto|…>");
+ *  no /config row holds the effort, so the list is not read at run time. */
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'auto']
+
 /** Earlier versions' cell kinds, as this one reads them; null drops the cell. */
 const LEGACY_PANELS: Record<string, Panel | null> = {
   browser: 'browser',
@@ -158,7 +162,7 @@ export function normalise(raw: unknown, toFavorite: TabToFavorite): { file: Work
     grid = defaultGrid(onceEach(items as FileCell[]))
   }
   const isLegacy = f.tabs !== undefined || !Array.isArray(f.cells)
-  return { file: { name, folder: text(f.folder), ...grid }, isLegacy }
+  return { file: { name, folder: text(f.folder), model: text(f.model), effort: text(f.effort), ...grid }, isLegacy }
 }
 
 /** A workspace's shape in a line: "3 cells · Gmail, Slack, Calendar". */

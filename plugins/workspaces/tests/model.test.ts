@@ -63,7 +63,7 @@ describe('workspace model', () => {
   })
 
   test('summaries', () => {
-    const file = { name: 'A', folder: null, cols: 2, rows: 1, col_widths: [0.5, 0.5], row_heights: [1], cells: [{ panel: 'browser' as const, col: 0, row: 0, favorite: 'gmail' }, { panel: 'terminal' as const, col: 1, row: 0 }] }
+    const file = { name: 'A', folder: null, model: null, effort: null, cols: 2, rows: 1, col_widths: [0.5, 0.5], row_heights: [1], cells: [{ panel: 'browser' as const, col: 0, row: 0, favorite: 'gmail' }, { panel: 'terminal' as const, col: 1, row: 0 }] }
     expect(summaryOf(file, [{ id: 'gmail', name: 'Gmail', url: 'u', keep_in_panel: false }])).toBe('2 cells · Gmail, Terminal')
     expect(summaryOf({ ...file, cells: [file.cells[0]!] }, [])).toBe('1 cell · ?')
     expect(summaryOf({ ...file, cells: [] }, [])).toBe('No cells')
@@ -83,7 +83,7 @@ describe('workspace model', () => {
 
 describe('reading a workspace file', () => {
   test("this version's file reads as written", () => {
-    const file = { name: 'Comms', folder: '/code', cols: 3, rows: 1, col_widths: [0.4, 0.3, 0.3], row_heights: [1], cells: [{ panel: 'browser', col: 0, row: 0, favorite: 'gmail' }, { panel: 'terminal', col: 1, row: 0, col_span: 2 }] }
+    const file = { name: 'Comms', folder: '/code', model: 'sonnet', effort: 'high', cols: 3, rows: 1, col_widths: [0.4, 0.3, 0.3], row_heights: [1], cells: [{ panel: 'browser', col: 0, row: 0, favorite: 'gmail' }, { panel: 'terminal', col: 1, row: 0, col_span: 2 }] }
     expect(normalise(file, ids)).toEqual({ file, isLegacy: false })
   })
 
@@ -109,6 +109,8 @@ describe('reading a workspace file', () => {
       file: {
         name: 'IDE',
         folder: null,
+        model: 'opus',
+        effort: null,
         cols: 3,
         rows: 2,
         col_widths: [0.2, 0.5, 0.3],

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { checkFavorite, checkFavoriteDelete, checkWorkspace, checkWorkspaceDelete, slugOf, urlOf, usedBy } from '../helper/library.mjs'
+import { checkFavorite, checkFavoriteDelete, checkWorkspace, checkWorkspaceDelete, pickedFolder, slugOf, urlOf, usedBy } from '../helper/library.mjs'
 import type { LibWorkspace } from '../helper/library.mjs'
 
 const FAVS = [
@@ -11,7 +11,7 @@ const ws = (slug: string, name: string, favorite?: string): LibWorkspace => ({
   slug,
   file: { name, folder: null, cols: 1, rows: 1, col_widths: [1], row_heights: [1], cells: favorite ? [{ panel: 'browser', col: 0, row: 0, favorite }] : [{ panel: 'files', col: 0, row: 0 }] },
 })
-const LIB = { workspaces: [ws('comms', 'Comms', 'gmail'), ws('ide', 'IDE')], favorites: FAVS }
+const LIB = { workspaces: [ws('comms', 'Comms', 'gmail'), ws('ide', 'IDE')], favorites: FAVS, choices: { models: ['default', 'sonnet', 'opus'], efforts: ['low', 'high'] } }
 const input = (over: object = {}) => ({
   original: null,
   name: 'Mail',
@@ -25,7 +25,7 @@ const input = (over: object = {}) => ({
 describe('what the editor may save: workspaces', () => {
   test('a new workspace: its file, at a free slug, sizes even unless given', () => {
     expect(checkWorkspace(input(), LIB)).toEqual({
-      file: { name: 'Mail', folder: null, cols: 2, rows: 1, col_widths: [0.5, 0.5], row_heights: [1], cells: input().cells },
+      file: { name: 'Mail', folder: null, model: null, effort: null, cols: 2, rows: 1, col_widths: [0.5, 0.5], row_heights: [1], cells: input().cells },
       slug: 'mail',
       replaces: null,
     })
@@ -60,6 +60,21 @@ describe('what the editor may save: workspaces', () => {
     )
     expect(err(null as unknown as object)).toBeUndefined()
     expect((checkWorkspace(null, LIB) as { error?: string }).error).toBe('Workspace name is required.')
+  })
+
+  test("model and effort: one this session offers, or none (the session's own stays)", () => {
+    expect(checkWorkspace(input({ model: 'sonnet', effort: 'high' }), LIB)).toMatchObject({ file: { model: 'sonnet', effort: 'high' } })
+    expect(checkWorkspace(input({ model: ' ', effort: '' }), LIB)).toMatchObject({ file: { model: null, effort: null } })
+    expect(checkWorkspace(input({ model: 'gpt' }), LIB)).toEqual({ error: '"gpt" is not one of the models this session offers.' })
+    expect(checkWorkspace(input({ effort: 'huge' }), LIB)).toEqual({ error: '"huge" is not an effort level.' })
+    expect(checkWorkspace(input({ model: 'sonnet' }), { workspaces: [], favorites: FAVS })).toEqual({ error: '"sonnet" is not one of the models this session offers.' })
+  })
+
+  test("the Mac's folder chooser: the folder's path, or nothing when cancelled", () => {
+    expect(pickedFolder({ code: 0, stdout: '/Users/me/code/\n' })).toBe('/Users/me/code')
+    expect(pickedFolder({ code: 0, stdout: '/\n' })).toBe('/')
+    expect(pickedFolder({ code: 1, stdout: '' })).toBeNull()
+    expect(pickedFolder({ code: 0, stdout: 'execution error: User canceled. (-128)' })).toBeNull()
   })
 
   test('saved cells keep only what a file holds', () => {

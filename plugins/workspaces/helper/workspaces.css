@@ -451,6 +451,9 @@ select.settings-input {
   font: 13px/1.45 var(--font-sans);
 }
 .ws-view .ws-page { max-width: 1100px; margin: 0 auto; }
+/* The folder field and Browse…, as the app's workspace-create modal set them. */
+.ws-dir { display: flex; align-items: center; gap: 8px; max-width: 580px; }
+.ws-dir .layout-folder-row { flex: 1; }
 .ws-fav-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
 .ws-fav-row:hover { background: var(--hover); }
 .ws-fav-name { font-weight: 600; min-width: 140px; }

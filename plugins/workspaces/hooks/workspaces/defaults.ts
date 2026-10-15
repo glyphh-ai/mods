@@ -11,7 +11,7 @@ export const DEFAULT_FAVORITES: Favorite[] = [
   { id: 'google', name: 'Google', url: 'https://www.google.com', keep_in_panel: false },
 ]
 
-const workspace = (name: string, items: Parameters<typeof defaultGrid>[0]): WorkspaceFile => ({ name, folder: null, ...defaultGrid(items) })
+const workspace = (name: string, items: Parameters<typeof defaultGrid>[0]): WorkspaceFile => ({ name, folder: null, model: null, effort: null, ...defaultGrid(items) })
 
 export const DEFAULT_WORKSPACES: WorkspaceFile[] = [
   workspace('Comms', [

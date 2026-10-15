@@ -61,6 +61,7 @@ export function fakeApp() {
   const calls: string[] = []
   const toasts: string[] = []
   const asked: string[] = []
+  const commands: string[] = []
   const tabs: { tabId: string; url: string }[] = []
   const files = new Set<string>()
   const world = {
@@ -118,8 +119,9 @@ export function fakeApp() {
     isFile: async p => files.has(p),
     toast: text => void toasts.push(text),
     ask: text => void asked.push(text),
+    command: (name, args) => void commands.push(`/${name} ${args}`),
   }
-  return { app, open, calls, toasts, asked, tabs, files, world }
+  return { app, open, calls, toasts, asked, commands, tabs, files, world }
 }
 
 // The test's own signing key, standing in for the site's.
