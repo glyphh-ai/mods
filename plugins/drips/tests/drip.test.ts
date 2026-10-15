@@ -18,6 +18,12 @@ async function started($: Engine, on: On, store: Record<string, unknown> = {}, o
   return { ...w, clock, run }
 }
 
+/** Moves the clock until `done` holds: what a play starts finishes in the
+ *  background, and on a slow machine it takes more than one turn of it. */
+async function until(clock: { advance(ms: number): Promise<unknown> }, done: () => boolean) {
+  for (let i = 0; i < 200 && !done(); i++) await clock.advance(0)
+}
+
 describe("/drip in Claude's window (the default)", () => {
   test('the commands and tools are registered at the start', async ($, on) => {
     const { commands, tools } = await started($, on)
@@ -28,7 +34,7 @@ describe("/drip in Claude's window (the default)", () => {
   test('the first play opens the Drips page in the Browser pane, then plays there, sized to it', async ($, on) => {
     const { run, clock, page, mcp } = await started($, on)
     expect(await run('drip', 'confetti')).toBe('drip: confetti')
-    await clock.advance(0)
+    await until(clock, () => mcp.includes('Claude_Browser.preview_start') && page.played.length > 0 && page.library.length > 0)
     expect(mcp).toContain('Claude_Browser.preview_start')
     expect(page.played).toHaveLength(1)
     expect(page.played[0]).toMatchObject({ kind: 'one-shot', effect: 'confetti', closeAfterMs: 8000 })
@@ -64,9 +70,10 @@ describe("/drip in Claude's window (the default)", () => {
     expect(await run('drip', 'save Party 3 hearts')).toBe('saved drip "party" → 3 hearts')
     expect(await run('drip', 'list')).toContain('custom: party → 3 hearts')
     expect(await run('drip', 'party')).toBe('drip: hearts x3')
-    await clock.advance(0)
+    await until(clock, () => page.library.at(-1)?.drips?.length === 1)
     expect(page.library.at(-1)?.drips).toEqual([{ name: 'party', recipe: '3 hearts' }])
     expect(await run('drip', 'delete party')).toBe('deleted drip "party"')
+    await until(clock, () => page.library.at(-1)?.drips?.length === 0)
     expect(page.library.at(-1)?.drips).toEqual([])
   })
 
