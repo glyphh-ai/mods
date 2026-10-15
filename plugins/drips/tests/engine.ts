@@ -29,6 +29,9 @@ export type FakeOverlay = { pid: number; request: { html: string; screen: unknow
 export function world(on: On, options: WorldOptions = {}) {
   const ran: string[][] = []
   const mcp: string[] = []
+  /** The pages asked of the Browser pane, by URL. */
+  const browsed: string[] = []
+  const copied: string[] = []
   const toasts: string[] = []
   const asked: string[] = []
   const commands: string[] = []
@@ -159,6 +162,7 @@ export function world(on: On, options: WorldOptions = {}) {
   })
   on('mcp.call', (_$, e) => {
     mcp.push(`${e.server}.${e.tool}`)
+    if (e.tool === 'preview_start') browsed.push(String(e.args.url))
     if (options.browserRefuses && e.server === 'Claude_Browser') return { value: mcpText('Not allowed in auto mode', true) }
     if (e.tool === 'preview_start') {
       if (!options.pageNeverOpens) page.open = 1
@@ -170,6 +174,10 @@ export function world(on: On, options: WorldOptions = {}) {
     toasts.push(e.text)
     return { value: undefined }
   })
+  on('ui.copy', (_$, e) => {
+    copied.push(e.text)
+    return { value: { isCopied: true } }
+  })
   on('prompt.submit', (_$, e) => {
     asked.push(e.text)
     return { text: e.text }
@@ -177,7 +185,7 @@ export function world(on: On, options: WorldOptions = {}) {
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: 'ok' } as never }))
-  return { ran, mcp, toasts, asked, commands, tools, files, overlays, page, glyphh, server, writes }
+  return { ran, mcp, browsed, copied, toasts, asked, commands, tools, files, overlays, page, glyphh, server, writes }
 }
 
 export const startSession = ($: Engine) => $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })

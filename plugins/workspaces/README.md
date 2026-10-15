@@ -167,8 +167,8 @@ Workspaces comes with a Glyphh subscription. Sign in with a free Glyphh
 account, and your plan sets what Workspaces can do.
 
 **Sign in.** Open the layout page with `/workspaces` and press **Sign in to
-Glyphh**, or run `/workspaces signin`. A Glyphh page opens in your browser
-with a short code. Check the code matches the one Workspaces shows, then
+Glyphh**, or run `/workspaces signin`. A Glyphh page opens in Claude's browser
+pane (in a terminal, the link is printed and copied) with a short code. Check the code matches the one Workspaces shows, then
 sign in with Google or GitHub. Workspaces updates by itself. One sign-in
 covers every Glyphh mod on your Mac. `/workspaces signout` signs the Mac out
 of all of them.
@@ -189,8 +189,8 @@ your plan doesn't include Workspaces, the layout page says so and offers
 `page_read` don't run.
 
 **Upgrade and billing.** The layout page's top bar shows your plan, with
-**Upgrade** and **Manage billing**. Upgrade opens Glyphh's checkout in your
-browser, and Workspaces picks up the new plan by itself. Manage billing
+**Upgrade** and **Manage billing**. Upgrade opens Glyphh's checkout in Claude's
+browser pane, and Workspaces picks up the new plan by itself. Manage billing
 opens the billing page, where you change your card, see invoices, or
 cancel. Your org's admin makes these changes.
 

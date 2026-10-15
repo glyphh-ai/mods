@@ -64,6 +64,15 @@ function deps($: EngineInterface): Deps {
     after: (ms, fn) => $.clock.after(ms, () => void fn()),
     every: (ms, fn) => $.clock.every(ms, () => void fn()),
     machine: () => machine($),
+    isDesktop: async () => (await $.session.surfaces()).includes('desktop'),
+    // The way Workspaces opens its layout page: a tab of the app's Browser pane.
+    browse: url => $.mcp.call('Claude_Browser', 'preview_start', { url }).then(r => !r.isError, () => false),
+    // A prompt submitted from inside a command would wait on the command
+    // itself: it goes once the command has returned.
+    ask: text =>
+      void $.clock.after(0, () => {
+        $.prompt.submit({ text }).catch(() => $.ui.toast('The Browser pane is not available: allow mcp__Claude_Browser__preview_start'))
+      }),
     open: async url => (await $.process.run(['open', url]).catch(() => null))?.exitCode === 0,
     copy: async text => (await $.ui.copy({ text })).isCopied,
     toast: text => $.ui.toast(text),

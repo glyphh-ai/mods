@@ -173,11 +173,12 @@ describe('the licence from the server', () => {
 
 describe('signing in to Glyphh (the device flow)', () => {
   test('a code for this machine, its page opened, the server asked at its interval until the token comes', async () => {
-    const { d, state, files, server, opened, toasts, w } = fresh('signed-out')
+    const { d, state, files, server, opened, browsed, toasts, w } = fresh('signed-out')
     await start(d)
-    expect(await signIn(d)).toBe('Sign in to Glyphh: check the code BCDF-GHJK at http://localhost:8080/v1/device (opened in your browser).')
+    expect(await signIn(d)).toBe('Sign in to Glyphh: check the code BCDF-GHJK at http://localhost:8080/v1/device (opened in the browser pane).')
     expect(server.asked('/v1/device/code')[0]!.body).toEqual({ machine_id: 'a'.repeat(64), name: 'Test Mac', surface: 'desktop', mod_version: '1.0.0' })
-    expect(opened).toEqual(['http://localhost:8080/v1/device?code=BCDF-GHJK'])
+    expect(browsed).toEqual(['http://localhost:8080/v1/device?code=BCDF-GHJK'])
+    expect(opened).toEqual([])
     expect(state().signIn).toEqual({ userCode: 'BCDF-GHJK', uri: 'http://localhost:8080/v1/device' })
     expect(await signIn(d)).toBe('Signing in: check the code BCDF-GHJK at http://localhost:8080/v1/device')
     await w.advance(4999)
@@ -248,16 +249,28 @@ describe('signing in to Glyphh (the device flow)', () => {
     expect(state().install).toBeNull()
   })
 
-  test('where the browser does not open, the link is copied; where it cannot be copied, it is said', async () => {
+  test("the desktop app refusing the Browser pane: Claude is asked to open the page there, never the Mac's browser", async () => {
+    const { d, w, opened, asked } = fresh('signed-out')
+    w.browseOk = false
+    expect(await signIn(d)).toBe('Sign in to Glyphh: check the code BCDF-GHJK at http://localhost:8080/v1/device (Claude is asked to open it in the browser pane).')
+    expect(asked).toEqual(['Open this page in the browser pane: http://localhost:8080/v1/device?code=BCDF-GHJK'])
+    expect(opened).toEqual([])
+    expect(asked.join()).not.toContain(TOKEN)
+  })
+
+  test('in a terminal the link is printed and copied, and the browser opened; where it cannot be copied, it is said', async () => {
     const a = fresh('signed-out')
-    a.w.openOk = false
-    await signIn(a.d)
+    a.w.desktop = false
+    expect(await signIn(a.d)).toBe('Sign in to Glyphh: check the code BCDF-GHJK at http://localhost:8080/v1/device (link copied: http://localhost:8080/v1/device?code=BCDF-GHJK).')
     expect(a.copied).toEqual(['http://localhost:8080/v1/device?code=BCDF-GHJK'])
-    expect(a.toasts).toContain('The sign-in link is copied: paste it into your browser.')
+    expect(a.opened).toEqual(['http://localhost:8080/v1/device?code=BCDF-GHJK'])
+    expect(a.browsed).toEqual([])
+    expect(a.toasts).toContain('The sign-in link is copied: http://localhost:8080/v1/device?code=BCDF-GHJK')
     const b = fresh('signed-out')
+    b.w.desktop = false
     b.w.openOk = false
     b.w.copyOk = false
-    await signIn(b.d)
+    expect(await signIn(b.d)).toContain('(open http://localhost:8080/v1/device?code=BCDF-GHJK)')
     expect(b.toasts).toContain('Open this link: http://localhost:8080/v1/device?code=BCDF-GHJK')
   })
 
@@ -310,12 +323,12 @@ describe('signing out', () => {
 
 describe('Upgrade and Manage billing', () => {
   test("Upgrade: checkout for the next plan, opened; the licence asked until the plan changes", async () => {
-    const { d, state, server, opened, toasts, w } = fresh('free')
+    const { d, state, server, browsed, toasts, w } = fresh('free')
     await load(d)
-    expect(await upgrade(d)).toBe('Finish checkout in your browser: Drips updates on its own.')
+    expect(await upgrade(d)).toBe('Finish checkout (opened in the browser pane): Drips updates on its own.')
     expect(server.asked('/v1/plans')).toHaveLength(1)
     expect(server.asked('/v1/billing/checkout')[0]).toMatchObject({ method: 'POST', headers: { Authorization: BEARER }, body: { plan: 'Pro', seats: 1 } })
-    expect(opened).toEqual(['https://checkout.stripe.com/c/pay/cs_test_1'])
+    expect(browsed).toEqual(['https://checkout.stripe.com/c/pay/cs_test_1'])
     expect(state().upgrading).toEqual({ plan: 'Free' })
     server.licence = FREE
     await w.advance(5000)
@@ -350,11 +363,11 @@ describe('Upgrade and Manage billing', () => {
   })
 
   test('an org already subscribed changes plan in the billing page', async () => {
-    const { d, opened, state, server } = fresh('free')
+    const { d, browsed, state, server } = fresh('free')
     await load(d)
     server.checkout.push({ status: 409, body: refusalBody('E_CONFLICT', 'Your org is already subscribed: change plan or seats instead.', { reason: 'subscribed' }) })
-    expect(await upgrade(d)).toBe('Change to Pro in the billing page: Drips updates on its own.')
-    expect(opened).toEqual(['https://billing.stripe.com/p/session/test_1'])
+    expect(await upgrade(d)).toBe('Change to Pro in the billing page (opened in the browser pane): Drips updates on its own.')
+    expect(browsed).toEqual(['https://billing.stripe.com/p/session/test_1'])
     expect(state().upgrading).toEqual({ plan: 'Free' })
   })
 
@@ -379,11 +392,12 @@ describe('Upgrade and Manage billing', () => {
   })
 
   test("Manage billing opens Stripe's page; no billing yet, or not the admin, is said", async () => {
-    const { d, server, opened } = fresh('pro')
+    const { d, server, browsed, opened } = fresh('pro')
     await load(d)
-    expect(await billing(d)).toBe('Billing opened in your browser.')
+    expect(await billing(d)).toBe('Billing: opened in the browser pane.')
     expect(server.asked('/v1/billing/portal')[0]).toMatchObject({ method: 'POST', headers: { Authorization: BEARER } })
-    expect(opened).toEqual(['https://billing.stripe.com/p/session/test_1'])
+    expect(browsed).toEqual(['https://billing.stripe.com/p/session/test_1'])
+    expect(opened).toEqual([])
     server.portal = { status: 409, body: refusalBody('E_CONFLICT', 'Your org has no billing yet: subscribe first.', { reason: 'no_billing' }) }
     expect(await billing(d)).toBe('No billing yet: Upgrade to a paid plan first.')
     server.portal = { status: 403, body: refusalBody('E_FORBIDDEN', 'Admins only.') }
@@ -393,5 +407,23 @@ describe('Upgrade and Manage billing', () => {
     server.offline = true
     expect(await billing(d)).toBe('Could not reach Glyphh. Check your connection and try again.')
     expect(await billing(fresh('signed-out').d)).toBe('Sign in to Glyphh first.')
+  })
+
+  test('in a terminal, checkout and billing are printed and copied; refused on the desktop, Claude is asked', async () => {
+    const t = fresh('free')
+    t.w.desktop = false
+    await load(t.d)
+    expect(await upgrade(t.d)).toBe('Finish checkout (link copied: https://checkout.stripe.com/c/pay/cs_test_1): Drips updates on its own.')
+    expect(t.copied).toEqual(['https://checkout.stripe.com/c/pay/cs_test_1'])
+    const b = fresh('pro')
+    b.w.desktop = false
+    await load(b.d)
+    expect(await billing(b.d)).toBe('Billing: link copied: https://billing.stripe.com/p/session/test_1.')
+    const r = fresh('pro')
+    r.w.browseOk = false
+    await load(r.d)
+    expect(await billing(r.d)).toBe('Billing: Claude is asked to open it in the browser pane.')
+    expect(r.asked).toEqual(['Open this page in the browser pane: https://billing.stripe.com/p/session/test_1'])
+    expect(r.opened).toEqual([])
   })
 })

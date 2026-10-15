@@ -1,5 +1,6 @@
 // The account module's Deps in memory: ~/.glyphh, a clock whose timers run
-// when the test moves it, the browser, and the Glyphh server (./glyphh).
+// when the test moves it, the desktop app's Browser pane, the browser, and
+// the Glyphh server (./glyphh).
 import type { Timer } from 'claude-code'
 
 import type { AccountState } from '../types'
@@ -22,6 +23,11 @@ export function fakeDeps(account: Account = 'pro', options: { home?: string | nu
     files,
     server,
     opened: [] as string[],
+    /** Pages opened in the desktop app's Browser pane, and what Claude was asked. */
+    browsed: [] as string[],
+    asked: [] as string[],
+    desktop: true,
+    browseOk: true,
     copied: [] as string[],
     toasts: [] as string[],
     logs: [] as string[],
@@ -73,6 +79,12 @@ export function fakeDeps(account: Account = 'pro', options: { home?: string | nu
     after: (ms, fn) => timer(ms, false, fn),
     every: (ms, fn) => timer(ms, true, fn),
     machine: async () => ({ machine_id: 'a'.repeat(64), name: 'Test Mac', surface: 'desktop', mod_version: '1.0.0' }),
+    isDesktop: async () => w.desktop,
+    browse: async url => {
+      w.browsed.push(url)
+      return w.browseOk
+    },
+    ask: text => void w.asked.push(text),
     open: async url => {
       w.opened.push(url)
       return w.openOk

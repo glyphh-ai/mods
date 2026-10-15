@@ -53,14 +53,15 @@ describe('the Glyphh account in Workspaces', () => {
   })
 
   test("the page's Sign in: a code for this Mac, its page opened, then signed in for every Glyphh mod", async ($, on) => {
-    const { helper, clock, last, server, ran, writes, files, toasts, run } = await started($, on, { account: 'signed-out' })
+    const { helper, clock, last, server, ran, browsed, writes, files, toasts, run } = await started($, on, { account: 'signed-out' })
     helper.press('signin')
     await clock.advance(1000)
     const sent = server.asked('/v1/device/code')[0]!.body as Record<string, unknown>
     const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(HARDWARE_UUID))), b => b.toString(16).padStart(2, '0')).join('')
     expect(sent).toEqual({ machine_id: hash, name: "Tim's MacBook Pro", surface: 'desktop', mod_version: '0.0.0' })
     expect(JSON.stringify(sent)).not.toContain(HARDWARE_UUID)
-    expect(ran).toContainEqual(['open', `${SERVER}/v1/device?code=BCDF-GHJK`])
+    expect(browsed).toContain(`${SERVER}/v1/device?code=BCDF-GHJK`)
+    expect(ran.filter(a => a[0] === 'open')).toEqual([])
     expect(last()).toMatchObject({ kind: 'signed-out', signIn: { userCode: 'BCDF-GHJK', uri: `${SERVER}/v1/device` } })
 
     server.tokens.push({ status: 200, body: { access_token: TOKEN, token_type: 'Bearer', install_id: INSTALL } })
@@ -100,18 +101,19 @@ describe('the Glyphh account in Workspaces', () => {
   })
 
   test("the page's Upgrade at a limit opens checkout for the plan that lifts it; Manage billing opens Stripe's page", async ($, on) => {
-    const { helper, clock, server, ran, last } = await started($, on, { account: 'free' })
+    const { helper, clock, server, ran, browsed, last } = await started($, on, { account: 'free' })
     helper.press('upgrade:stream')
     await clock.advance(1000)
     expect(server.asked('/v1/billing/checkout')[0]!.body).toEqual({ plan: 'Pro', seats: 1 })
-    expect(ran).toContainEqual(['open', 'https://checkout.stripe.com/c/pay/cs_test_1'])
+    expect(browsed).toContain('https://checkout.stripe.com/c/pay/cs_test_1')
     expect(last()).toMatchObject({ isUpgrading: true })
     server.licence = PRO
     for (let i = 0; i < 10 && last()?.plan !== 'Pro'; i++) await clock.advance(1000)
     expect(last()).toMatchObject({ plan: 'Pro', isUpgrading: false, limits: { stream: 1 } })
     helper.press('billing')
     await clock.advance(1000)
-    expect(ran).toContainEqual(['open', 'https://billing.stripe.com/p/session/test_1'])
+    expect(browsed).toContain('https://billing.stripe.com/p/session/test_1')
+    expect(ran.filter(a => a[0] === 'open')).toEqual([])
   })
 
   test("the page's Cancel ends a sign-in; an unknown ask is passed over", async ($, on) => {
@@ -133,5 +135,36 @@ describe('the Glyphh account in Workspaces', () => {
     await run('workspaces')
     await clock.advance(1000)
     expect(helper.licence.length).toBeGreaterThan(sent)
+  })
+
+  test("/workspaces signin on the desktop: the device page in Claude's Browser pane, never the Mac's browser", async ($, on) => {
+    const { run, ran, browsed, asked, clock } = await started($, on, { account: 'signed-out' })
+    expect(await run('workspaces', 'signin')).toBe(`Sign in to Glyphh: check the code BCDF-GHJK at ${SERVER}/v1/device (opened in the browser pane).`)
+    await clock.advance(0)
+    expect(browsed).toContain(`${SERVER}/v1/device?code=BCDF-GHJK`)
+    expect(asked).toEqual([])
+    expect(ran.filter(a => a[0] === 'open')).toEqual([])
+  })
+
+  test('the app refusing the Browser pane: Claude is asked to open the page there once the command has returned', async ($, on) => {
+    const { run, ran, asked, clock } = await started($, on, { account: 'signed-out', browserRefuses: true })
+    asked.length = 0
+    expect(await run('workspaces', 'signin')).toBe(`Sign in to Glyphh: check the code BCDF-GHJK at ${SERVER}/v1/device (Claude is asked to open it in the browser pane).`)
+    expect(asked).toEqual([])
+    await clock.advance(0)
+    expect(asked).toEqual([`Open this page in the browser pane: ${SERVER}/v1/device?code=BCDF-GHJK`])
+    expect(asked.join()).not.toContain(TOKEN)
+    expect(ran.filter(a => a[0] === 'open')).toEqual([])
+  })
+
+  test('/workspaces signin in a terminal: the link printed and copied', async ($, on) => {
+    mock.store(on, {})
+    const clock = mock.clock(on, { now: T0 })
+    const { w, mcp } = world(on, { account: 'signed-out', surfaces: ['terminal'] })
+    await startSession($)
+    await clock.advance(0)
+    expect(await runCommand($, 'workspaces', 'signin')).toBe(`Sign in to Glyphh: check the code BCDF-GHJK at ${SERVER}/v1/device (link copied: ${SERVER}/v1/device?code=BCDF-GHJK).`)
+    expect(w.copied).toEqual([`${SERVER}/v1/device?code=BCDF-GHJK`])
+    expect(mcp.filter(m => m === 'Claude_Browser.preview_start')).toEqual([])
   })
 })

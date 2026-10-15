@@ -315,24 +315,26 @@ describe('the Glyphh plan', () => {
     free.page.licenceAsks.push('upgrade:fullscreen')
     await free.clock.advance(1000)
     expect(free.server.asked('/v1/billing/checkout')[0]!.body).toEqual({ plan: 'Pro', seats: 1 })
-    expect(free.ran).toContainEqual(['open', 'https://checkout.stripe.com/c/pay/cs_test_1'])
+    expect(free.browsed).toContain('https://checkout.stripe.com/c/pay/cs_test_1')
+    expect(free.ran.filter(a => a[0] === 'open')).toEqual([])
     expect(free.page.licence.at(-1)).toMatchObject({ isUpgrading: true })
   })
 
   test("signed out, the page's Sign in shows the code there", async ($, on) => {
-    const { run, clock, page, ran } = await started($, on, {}, { account: 'signed-out' })
+    const { run, clock, page, ran, browsed } = await started($, on, {}, { account: 'signed-out' })
     await run('drips')
     page.licenceAsks.push('signin')
     await clock.advance(1000)
     await clock.advance(1000)
-    expect(ran).toContainEqual(['open', 'http://localhost:8080/v1/device?code=BCDF-GHJK'])
+    expect(browsed).toContain('http://localhost:8080/v1/device?code=BCDF-GHJK')
+    expect(ran.filter(a => a[0] === 'open')).toEqual([])
     expect(page.licence.at(-1)).toMatchObject({ kind: 'signed-out', signIn: { userCode: 'BCDF-GHJK' } })
   })
 
   test('/drips signin and signout; a usage line for extra words', async ($, on) => {
     const { run, server, glyphh } = await started($, on, {}, { account: 'signed-out' })
     expect(await run('drips', 'signin now')).toBe('Usage: /drips signin')
-    expect(await run('drips', 'signin')).toBe('Sign in to Glyphh: check the code BCDF-GHJK at http://localhost:8080/v1/device (opened in your browser).')
+    expect(await run('drips', 'signin')).toBe('Sign in to Glyphh: check the code BCDF-GHJK at http://localhost:8080/v1/device (opened in the browser pane).')
     expect(server.asked('/v1/device/code')[0]!.body).toMatchObject({ surface: 'desktop', name: "Tim's MacBook Pro", mod_version: '1.2.3', machine_id: expect.stringMatching(/^[0-9a-f]{64}$/) })
     expect(await run('drips', 'signout')).toBe('Not signed in to Glyphh.')
     expect(glyphh.size).toBe(0)
@@ -374,5 +376,30 @@ describe('the fun hooks', () => {
     await $.tool.call({ tool: 'Bash', input: { command: 'ls' }, agentId: 'sub-1' } as never)
     await clock.advance(0)
     expect(page.played).toEqual([])
+  })
+
+  test("/drips signin on the desktop: the device page in Claude's Browser pane, never the Mac's browser", async ($, on) => {
+    const { run, ran, browsed, asked, clock } = await started($, on, {}, { account: 'signed-out' })
+    await run('drips', 'signin')
+    await clock.advance(0)
+    expect(browsed).toEqual(['http://localhost:8080/v1/device?code=BCDF-GHJK'])
+    expect(asked).toEqual([])
+    expect(ran.filter(a => a[0] === 'open')).toEqual([])
+  })
+
+  test('the app refusing the Browser pane: Claude is asked to open the page there once the command has returned', async ($, on) => {
+    const { run, ran, asked, clock } = await started($, on, {}, { account: 'signed-out', browserRefuses: true })
+    expect(await run('drips', 'signin')).toBe('Sign in to Glyphh: check the code BCDF-GHJK at http://localhost:8080/v1/device (Claude is asked to open it in the browser pane).')
+    expect(asked).toEqual([])
+    await clock.advance(0)
+    expect(asked).toEqual(['Open this page in the browser pane: http://localhost:8080/v1/device?code=BCDF-GHJK'])
+    expect(ran.filter(a => a[0] === 'open')).toEqual([])
+  })
+
+  test('/drips signin in a terminal: the link printed and copied', async ($, on) => {
+    const { run, copied, browsed } = await started($, on, {}, { account: 'signed-out', surfaces: ['terminal'] })
+    expect(await run('drips', 'signin')).toBe('Sign in to Glyphh: check the code BCDF-GHJK at http://localhost:8080/v1/device (link copied: http://localhost:8080/v1/device?code=BCDF-GHJK).')
+    expect(copied).toEqual(['http://localhost:8080/v1/device?code=BCDF-GHJK'])
+    expect(browsed).toEqual([])
   })
 })

@@ -67,6 +67,8 @@ export function world(on: On, options: WorldOptions = {}) {
   const open = new Set<string>()
   const ran: string[][] = []
   const mcp: string[] = []
+  /** The pages asked of the Browser pane, by URL. */
+  const browsed: string[] = []
   const toasts: string[] = []
   const asked: string[] = []
   const commands: string[] = []
@@ -188,6 +190,7 @@ export function world(on: On, options: WorldOptions = {}) {
   })
   on('mcp.call', (_$, e) => {
     mcp.push(`${e.server}.${e.tool}`)
+    if (e.tool === 'preview_start') browsed.push(String(e.args.url))
     if (options.browserRefuses && e.server === 'Claude_Browser') return { value: mcpText('Not allowed in auto mode', true) }
     return { value: e.tool === 'preview_start' ? mcpText('{"tabId": "t1"}') : mcpText('ok') }
   })
@@ -215,7 +218,7 @@ export function world(on: On, options: WorldOptions = {}) {
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   for (const [command, text] of Object.entries(options.taken ?? {})) on('command.run', { command }, () => ({ text }))
   const json = (slug: string) => JSON.parse(files.get(`${DIR}/${slug}.json`)!)
-  return { files, open, ran, mcp, toasts, asked, commands, slash, w, helper, json, server, writes }
+  return { files, open, ran, mcp, browsed, toasts, asked, commands, slash, w, helper, json, server, writes }
 }
 
 /** The session starting on the desktop, as the engine starts it. */

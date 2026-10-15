@@ -2,7 +2,8 @@
 // The account's life: one sign-in to Glyphh shared by every Glyphh mod on the
 // machine (the server's device flow, RFC 8628), the plan's licence fetched,
 // checked offline and refreshed before it runs out, Upgrade and Manage
-// billing through the server's Stripe pages, and sign-out. The token and the
+// billing through the server's Stripe pages (each page opened in Claude's
+// Browser pane on the desktop app), and sign-out. The token and the
 // licence live in ~/.glyphh (install.json, mode 0600; license.json), read
 // again every few seconds so a sign-in or sign-out in another mod shows here
 // too. It works on Deps, closures over `$` that ./hooks.tsx hands it.
@@ -33,7 +34,14 @@ export type Deps = {
   every(ms: number, fn: () => Promise<void>): Timer
   /** This machine as the sign-in names it. */
   machine(): Promise<Machine>
-  /** Opens a page in the person's browser; false when it could not. */
+  /** Whether the Claude desktop app draws this session. */
+  isDesktop(): Promise<boolean>
+  /** Opens a page in the desktop app's Browser pane; false when the app refused. */
+  browse(url: string): Promise<boolean>
+  /** Asks Claude, as a prompt of its own once the command in progress is
+   *  done: the way round the app refusing the mod's own call. */
+  ask(text: string): void
+  /** Opens a page in the person's browser (a terminal session); false when it could not. */
   open(url: string): Promise<boolean>
   copy(text: string): Promise<boolean>
   toast(text: string): void
@@ -243,10 +251,21 @@ function deviceStartOf(text: string): DeviceStart | null {
   }
 }
 
-/** Opens a page, or copies it when the browser could not open; says which. */
-async function show(d: Deps, url: string, what: string): Promise<void> {
-  if (await d.open(url)) return
-  d.toast((await d.copy(url)) ? `The ${what} link is copied: paste it into your browser.` : `Open this link: ${url}`)
+/** Opens a page. On the desktop app, in Claude's Browser pane, or Claude is
+ *  asked to open it there when the app refuses the mod's call; never the
+ *  Mac's own browser. In a terminal, the link is printed and copied, and the
+ *  browser opened. Says where it went, for the command's line. Only pages
+ *  without a token come here: the device page carries the user code alone. */
+async function show(d: Deps, url: string, what: string): Promise<string> {
+  if (await d.isDesktop()) {
+    if (await d.browse(url)) return 'opened in the browser pane'
+    d.ask(`Open this page in the browser pane: ${url}`)
+    return 'Claude is asked to open it in the browser pane'
+  }
+  const copied = await d.copy(url).catch(() => false)
+  await d.open(url).catch(() => false)
+  d.toast(copied ? `The ${what} link is copied: ${url}` : `Open this link: ${url}`)
+  return copied ? `link copied: ${url}` : `open ${url}`
 }
 
 /** Starts signing in: a code from the server, its page opened, then the
@@ -285,8 +304,8 @@ export async function signIn(d: Deps): Promise<string> {
     ask(why === 'slow_down' ? interval + 5 : interval)
   }
   ask(started.interval)
-  await show(d, started.verification_uri_complete, 'sign-in')
-  return `Sign in to Glyphh: check the code ${started.user_code} at ${started.verification_uri} (opened in your browser).`
+  const where = await show(d, started.verification_uri_complete, 'sign-in')
+  return `Sign in to Glyphh: check the code ${started.user_code} at ${started.verification_uri} (${where}).`
 }
 
 async function endSignIn(d: Deps, note: string | null): Promise<void> {
@@ -345,21 +364,27 @@ const ADMIN_ONLY = "Only your Glyphh org's admin can change its plan and billing
 
 /** Opens Stripe's billing page for the org (card, invoices, plan, cancel). */
 export async function billing(d: Deps): Promise<string> {
+  return (await openBilling(d)).line
+}
+
+/** The billing page opened, and where; or why not. */
+async function openBilling(d: Deps): Promise<{ line: string; where: string | null }> {
+  const refused = async (note: string) => ({ line: await say(d, note), where: null })
   const install = (await d.state.get()).install
-  if (!install) return say(d, 'Sign in to Glyphh first.')
+  if (!install) return refused('Sign in to Glyphh first.')
   const r = await d.fetch(`${SERVER}/v1/billing/portal`, { method: 'POST', headers: bearer(install) }).catch(() => null)
-  if (!r) return say(d, 'Could not reach Glyphh. Check your connection and try again.')
+  if (!r) return refused('Could not reach Glyphh. Check your connection and try again.')
   if (r.ok) {
     const url = urlOf(r.text)
     if (url) {
-      await show(d, url, 'billing')
-      return say(d, null, 'Billing opened in your browser.')
+      const where = await show(d, url, 'billing')
+      return { line: await say(d, null, `Billing: ${where}.`), where }
     }
   }
   const e = errorOf(r)
-  if (r.status === 403) return say(d, ADMIN_ONLY)
-  if (e.detail.reason === 'no_billing') return say(d, 'No billing yet: Upgrade to a paid plan first.')
-  return say(d, e.message)
+  if (r.status === 403) return refused(ADMIN_ONLY)
+  if (e.detail.reason === 'no_billing') return refused('No billing yet: Upgrade to a paid plan first.')
+  return refused(e.message)
 }
 
 function urlOf(text: string): string | null {
@@ -396,19 +421,19 @@ export async function upgrade(d: Deps, limit?: LimitName): Promise<string> {
     if (!r) return say(d, 'Could not reach Glyphh. Check your connection and try again.')
     const url = r.ok ? urlOf(r.text) : null
     if (url) {
-      await show(d, url, 'checkout')
+      const where = await show(d, url, 'checkout')
       await waitForPlan(d, s.licence.plan)
-      return say(d, `Finish checkout in your browser: ${PRODUCT} updates on its own.`)
+      return say(d, `Finish checkout (${where}): ${PRODUCT} updates on its own.`)
     }
     const e = errorOf(r)
     if (r.status === 403) return say(d, ADMIN_ONLY)
     if (e.detail.reason === 'subscribed') {
-      const opened = await billing(d)
-      if (opened === 'Billing opened in your browser.') {
+      const opened = await openBilling(d)
+      if (opened.where) {
         await waitForPlan(d, s.licence.plan)
-        return say(d, `Change to ${plan} in the billing page: ${PRODUCT} updates on its own.`)
+        return say(d, `Change to ${plan} in the billing page (${opened.where}): ${PRODUCT} updates on its own.`)
       }
-      return opened
+      return opened.line
     }
     // Checkout counts a seat for each member and open invite.
     if (r.status === 409 && typeof e.detail.used === 'number' && e.detail.used > seats) {

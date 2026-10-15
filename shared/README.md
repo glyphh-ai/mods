@@ -57,6 +57,16 @@ copy differs from this source.
    **Manage billing** is `POST /v1/billing/portal`. **Sign out** is
    `POST /v1/sign-out`, then both files go.
 
+## Where pages open
+
+The sign-in page, Stripe Checkout and the billing page open in Claude's
+Browser pane on the desktop app (`Claude_Browser` `preview_start`, the way
+Workspaces opens its layout page); when the app refuses the mod's call,
+Claude is asked, once the command has returned, to open the link there. The
+Mac's own browser is never opened from the desktop app. In a terminal session
+the link is printed and copied, and `open` is tried. No URL or prompt ever
+carries the token: the device page's link carries the user code alone.
+
 ## What a plan allows
 
 `payload.mods["<mod>"].limits` holds the mod's limits: a number, or `null`
