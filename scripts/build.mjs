@@ -2,8 +2,8 @@
 // Builds what buyers install: each plugin's shipped files with the live values
 // from release.json, under <out>/plugins/<name>, and <out>/.claude-plugin/
 // marketplace.json listing them; then `claude plugin validate` on the result.
-// Refuses while a live value is TBD (or still a test value), except --dry-run,
-// which keeps the test values and says which.
+// Refuses while a live value is TBD (or the server isn't https), except
+// --dry-run, which keeps the dev values and says which.
 //
 // Usage: node scripts/build.mjs <plugin...|--all> [--dry-run] --out <dir>
 import { spawnSync } from "node:child_process"
@@ -38,7 +38,7 @@ const refusals = []
 for (const plugin of plugins) {
   const drift = differences(expectedCopy(root, plugin), actualCopy(root, plugin))
   if (drift.length) refusals.push(`${plugin}: hooks/licence differs from shared/licence (run node scripts/sync-shared.mjs)`)
-  const values = releaseFor(release, plugin)
+  const values = releaseFor(release)
   const why = problems(values)
   if (why.length && !args.dryRun) refusals.push(`${plugin}: ${why.join("; ")} in release.json`)
   plans.push({ plugin, values, why })
@@ -61,7 +61,7 @@ for (const { plugin, values, why } of plans) {
   if (!shipped.includes("LICENSE")) writeFileSync(join(dest, "LICENSE"), readFileSync(join(root, "LICENSE")))
   const manifest = JSON.parse(readFileSync(join(src, ".claude-plugin", "plugin.json"), "utf8"))
   entries.push(entryFor(manifest))
-  console.log(`${plugin} ${manifest.version}: ${shipped.length + (shipped.includes("LICENSE") ? 0 : 1)} files${kept.length ? ` (dry run: test ${kept.join(", ")} kept; ${why.join("; ")})` : ""}`)
+  console.log(`${plugin} ${manifest.version}: ${shipped.length + (shipped.includes("LICENSE") ? 0 : 1)} files${kept.length ? ` (dry run: dev ${kept.join(", ")} kept; ${why.join("; ")})` : ""}`)
 }
 
 const marketFile = join(out, ".claude-plugin", "marketplace.json")

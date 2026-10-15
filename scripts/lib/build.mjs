@@ -17,26 +17,24 @@ export function isShipped(path) {
 
 /** The value standing for one not known yet. */
 export const TBD = "TBD"
-export const RELEASE_KEYS = ["SITE", "PUBLIC_KEY", "PAYMENT_LINK"]
+/** The live values a release swaps in: the Glyphh server and its licence key. */
+export const RELEASE_KEYS = ["SERVER", "PUBLIC_KEY"]
 
-/** A plugin's live values: its section in release.json over the file's own. */
-export function releaseFor(release, plugin) {
-  const own = release?.plugins?.[plugin]
-  if (!own) throw new Error(`release.json has no section for "${plugin}"`)
+/** The live values from release.json, the same for every plugin. */
+export function releaseFor(release) {
   const values = {}
-  for (const key of RELEASE_KEYS) values[key] = String(own[key] ?? release[key] ?? "")
+  for (const key of RELEASE_KEYS) values[key] = String(release?.[key] ?? "")
   return values
 }
 
-/** Why these values cannot ship: not known yet, or still test values. */
+/** Why these values cannot ship: not known yet, or a server that isn't https. */
 export function problems(values) {
   const out = []
   for (const key of RELEASE_KEYS) {
     const v = values[key]
     if (!v || v === TBD) out.push(`${key} is ${v ? TBD : "missing"}`)
   }
-  if (values.SITE && values.SITE !== TBD && !/^https:\/\//.test(values.SITE)) out.push("SITE is not https")
-  if (/\/test_/.test(values.PAYMENT_LINK ?? "")) out.push("PAYMENT_LINK is a Stripe test link")
+  if (values.SERVER && values.SERVER !== TBD && !/^https:\/\//.test(values.SERVER)) out.push("SERVER is not https")
   return out
 }
 
@@ -49,11 +47,11 @@ export function setConst(text, name, value) {
 }
 
 /** Where each live value lives in a plugin. */
-export const RELEASE_FILES = { SITE: "hooks/licence/site.ts", PUBLIC_KEY: "hooks/licence/site.ts", PAYMENT_LINK: "hooks/licence/config.ts" }
+export const RELEASE_FILES = { SERVER: "hooks/licence/server.ts", PUBLIC_KEY: "hooks/licence/server.ts" }
 
 /**
  * The plugin's files with the live values in. A value still TBD keeps the
- * test value (a dry run only: a release refuses before this) and is named in
+ * dev value (a dry run only: a release refuses before this) and is named in
  * `kept`.
  */
 export function applyRelease(files, values) {

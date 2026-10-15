@@ -8,40 +8,44 @@ test("only what a buyer needs ships", () => {
   for (const p of ["tests/flow.test.ts", "tsconfig.json", ".claude-plugin/types/claude-code/index.d.ts", ".claude-plugin/marketplace.json", "helper/debug/probe.html", "hooks/x.test.ts", "helper/.DS_Store", "release.json", "scripts/a.mjs"]) assert.equal(isShipped(p), false, p)
 })
 
-test("a plugin's live values: its section over the file's own", () => {
-  const release = { SITE: "https://glyphh.ai", PUBLIC_KEY: "k", plugins: { a: { PAYMENT_LINK: "https://buy.stripe.com/x" }, b: { PAYMENT_LINK: "TBD", SITE: "https://b.example" } } }
-  assert.deepEqual(releaseFor(release, "a"), { SITE: "https://glyphh.ai", PUBLIC_KEY: "k", PAYMENT_LINK: "https://buy.stripe.com/x" })
-  assert.deepEqual(releaseFor(release, "b"), { SITE: "https://b.example", PUBLIC_KEY: "k", PAYMENT_LINK: "TBD" })
-  assert.throws(() => releaseFor(release, "c"), /no section for "c"/)
+test("the live values come from release.json, the same for every plugin", () => {
+  assert.deepEqual(releaseFor({ SERVER: "https://api.glyphh.ai", PUBLIC_KEY: "k", plugins: { a: {} } }), { SERVER: "https://api.glyphh.ai", PUBLIC_KEY: "k" })
+  assert.deepEqual(releaseFor({}), { SERVER: "", PUBLIC_KEY: "" })
 })
 
-test("a release refuses TBD, missing, non-https and test values", () => {
-  assert.deepEqual(problems({ SITE: "https://glyphh.ai", PUBLIC_KEY: "k", PAYMENT_LINK: "https://buy.stripe.com/live" }), [])
-  assert.deepEqual(problems({ SITE: "TBD", PUBLIC_KEY: "", PAYMENT_LINK: "TBD" }), ["SITE is TBD", "PUBLIC_KEY is missing", "PAYMENT_LINK is TBD"])
-  assert.deepEqual(problems({ SITE: "http://localhost:3000", PUBLIC_KEY: "k", PAYMENT_LINK: "https://buy.stripe.com/test_abc" }), ["SITE is not https", "PAYMENT_LINK is a Stripe test link"])
+test("a release refuses TBD, missing, and a server that isn't https", () => {
+  assert.deepEqual(problems({ SERVER: "https://api.glyphh.ai", PUBLIC_KEY: "k" }), [])
+  assert.deepEqual(problems({ SERVER: "TBD", PUBLIC_KEY: "" }), ["SERVER is TBD", "PUBLIC_KEY is missing"])
+  assert.deepEqual(problems({ SERVER: "http://localhost:8080", PUBLIC_KEY: "TBD" }), ["PUBLIC_KEY is TBD", "SERVER is not https"])
 })
 
 test("a constant is set only where there is exactly one", () => {
-  assert.equal(setConst("export const SITE = 'http://x'\nexport const B = 'y'\n", "SITE", "https://glyphh.ai"), "export const SITE = 'https://glyphh.ai'\nexport const B = 'y'\n")
+  assert.equal(setConst("export const SERVER = 'http://x'\nexport const B = 'y'\n", "SERVER", "https://api.glyphh.ai"), "export const SERVER = 'https://api.glyphh.ai'\nexport const B = 'y'\n")
   assert.equal(setConst("export const A = ''", "A", "it's"), "export const A = 'it\\'s'")
-  assert.throws(() => setConst("const SITE = 'x'", "SITE", "y"), /found 0/)
+  assert.throws(() => setConst("const SERVER = 'x'", "SERVER", "y"), /found 0/)
   assert.throws(() => setConst("export const A = 'x'\nexport const A = 'y'", "A", "z"), /found 2/)
 })
 
-test("the live values go in; a TBD keeps the test value and is named", () => {
-  const files = new Map([
-    ["hooks/licence/site.ts", "export const SITE = 'http://localhost:3000'\nexport const PUBLIC_KEY = 'test'\n"],
-    ["hooks/licence/config.ts", "export const MOD = 'a'\nexport const PAYMENT_LINK = 'https://buy.stripe.com/test_1'\n"],
-  ])
-  const live = applyRelease(files, { SITE: "https://glyphh.ai", PUBLIC_KEY: "live", PAYMENT_LINK: "https://buy.stripe.com/live" })
+test("the live values go in; a TBD keeps the dev value and is named", () => {
+  const files = new Map([["hooks/licence/server.ts", "export const SERVER = 'http://localhost:8080'\nexport const PUBLIC_KEY = 'dev'\n"]])
+  const live = applyRelease(files, { SERVER: "https://api.glyphh.ai", PUBLIC_KEY: "live" })
   assert.deepEqual(live.kept, [])
-  assert.equal(live.files.get("hooks/licence/site.ts"), "export const SITE = 'https://glyphh.ai'\nexport const PUBLIC_KEY = 'live'\n")
-  assert.match(live.files.get("hooks/licence/config.ts"), /PAYMENT_LINK = 'https:\/\/buy.stripe.com\/live'/)
-  assert.equal(files.get("hooks/licence/site.ts").includes("localhost"), true, "the input is left alone")
-  const dry = applyRelease(files, { SITE: "https://glyphh.ai", PUBLIC_KEY: "TBD", PAYMENT_LINK: "TBD" })
-  assert.deepEqual(dry.kept, ["PUBLIC_KEY", "PAYMENT_LINK"])
-  assert.match(dry.files.get("hooks/licence/site.ts"), /PUBLIC_KEY = 'test'/)
-  assert.throws(() => applyRelease(new Map(), { SITE: "x" }), /site.ts is missing/)
+  assert.equal(live.files.get("hooks/licence/server.ts"), "export const SERVER = 'https://api.glyphh.ai'\nexport const PUBLIC_KEY = 'live'\n")
+  assert.equal(files.get("hooks/licence/server.ts").includes("localhost"), true, "the input is left alone")
+  const dry = applyRelease(files, { SERVER: "https://api.glyphh.ai", PUBLIC_KEY: "TBD" })
+  assert.deepEqual(dry.kept, ["PUBLIC_KEY"])
+  assert.match(dry.files.get("hooks/licence/server.ts"), /SERVER = 'https:\/\/api.glyphh.ai'/)
+  assert.match(dry.files.get("hooks/licence/server.ts"), /PUBLIC_KEY = 'dev'/)
+  assert.throws(() => applyRelease(new Map(), { SERVER: "x" }), /server.ts is missing/)
+})
+
+test("release.json names the live server; the dev source keeps the dev server", async () => {
+  const { readFileSync } = await import("node:fs")
+  const root = new URL("../../", import.meta.url)
+  const release = JSON.parse(readFileSync(new URL("release.json", root), "utf8"))
+  assert.equal(release.SERVER, "https://api.glyphh.ai")
+  assert.deepEqual(Object.keys(release).sort(), ["PUBLIC_KEY", "SERVER"])
+  assert.match(readFileSync(new URL("shared/licence/server.ts", root), "utf8"), /^export const SERVER = 'http:\/\/localhost:8080'$/m)
 })
 
 test("the marketplace: entries by name, others kept, the owner always Glyphh AI", () => {
