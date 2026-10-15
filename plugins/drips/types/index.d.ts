@@ -3,8 +3,8 @@ export type CustomDrip = { name: string; recipe: string }
 
 /** Where effects play: the /config row `display`. claude-window: the native
  *  overlay over the window Claude runs in; fullscreen: the native overlay over
- *  the whole screen; browser-pane: the Drips page in Claude's Browser pane. */
-export type Display = 'claude-window' | 'fullscreen' | 'browser-pane'
+ *  the whole screen. */
+export type Display = 'claude-window' | 'fullscreen'
 
 /** The running Drips page helper: where it listens and its token, kept in
  *  the session's memory (never on disk) so a reload of the mod finds it again. */

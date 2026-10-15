@@ -15,10 +15,10 @@ export type WorldOptions = {
   noNode?: boolean
   /** No Xcode Command Line Tools: swiftc is not there. */
   noSwift?: boolean
+  /** Not macOS. */
+  notMac?: boolean
   /** The app refuses the mod's own calls to its Browser pane. */
   browserRefuses?: boolean
-  /** The page, once opened, never connects. */
-  pageNeverOpens?: boolean
   /** The Glyphh account when the session starts: Pro unless a test says. */
   account?: Account
   /** GET /v1/addons's answer, when not the catalog's. */
@@ -69,9 +69,6 @@ export function world(on: On, options: WorldOptions = {}) {
     alive: null as { port: string; token: string; version: string } | null,
     open: 0,
     starts: 0,
-    played: [] as { kind: string; effect: string; html: string; closeAfterMs: number }[],
-    closed: [] as string[],
-    stops: 0,
     library: [] as { drips: { name: string; recipe: string }[]; effects: string[]; display: string }[],
     licence: [] as Record<string, unknown>[],
     inbox: [] as object[],
@@ -110,7 +107,7 @@ export function world(on: On, options: WorldOptions = {}) {
     const [cmd] = argv
     if (argv[1] === '--version') return { value: options.noNode ? done('', 127) : done('v22.1.0\n') }
     if (cmd === '/bin/zsh') return { value: done('', 1) }
-    if (cmd === 'uname') return { value: done('Darwin\n') }
+    if (cmd === 'uname') return { value: done(options.notMac ? 'Linux\n' : 'Darwin\n') }
     if (cmd === 'xcode-select') return { value: options.noSwift ? done('', 2, 'no developer tools') : done('/Library/Developer/CommandLineTools\n') }
     if (cmd === 'xcrun' && argv[1] === '--find') return { value: done('/usr/bin/swiftc\n') }
     if (cmd === 'xcrun' || cmd === '/bin/mkdir' || cmd === 'open') return { value: done() }
@@ -159,22 +156,13 @@ export function world(on: On, options: WorldOptions = {}) {
     const body = e.init?.body ? JSON.parse(String(e.init.body)) : undefined
     switch (url.pathname) {
       case '/api/state':
-        return ok({ version: alive.version, open: page.open, viewport: page.open ? { w: 1000, h: 700 } : null })
+        return ok({ version: alive.version, open: page.open })
       case '/api/key':
         return ok({ key: 'once' })
       case '/api/inbox':
         return ok({ messages: page.inbox.splice(0) })
       case '/api/library':
         page.library.push(body)
-        return ok({})
-      case '/api/play':
-        page.played.push(body)
-        return ok({})
-      case '/api/close':
-        page.closed.push(body.effect)
-        return ok({})
-      case '/api/stop':
-        page.stops++
         return ok({})
       case '/api/licence-inbox':
         return ok({ actions: page.licenceAsks.splice(0) })
@@ -192,7 +180,7 @@ export function world(on: On, options: WorldOptions = {}) {
     if (e.tool === 'preview_start') browsed.push(String(e.args.url))
     if (options.browserRefuses && e.server === 'Claude_Browser') return { value: mcpText('Not allowed in auto mode', true) }
     if (e.tool === 'preview_start') {
-      if (!options.pageNeverOpens) page.open = 1
+      page.open = 1
       return { value: mcpText('{"tabId": "t1"}') }
     }
     return { value: mcpText('ok') }

@@ -15,12 +15,12 @@ Drips works in Claude Code on a Mac.
 
 ## Requirements
 
-- The **Xcode Command Line Tools**, which bring Swift
+- **macOS** and the **Xcode Command Line Tools**, which bring Swift
   (`xcode-select --install`). Drips builds its small overlay program with
   them, to play effects over Claude's window or the whole screen. Without
-  them, Drips plays effects in the Drips page and tells you so.
+  them, effects don't play: Drips tells you once what to install.
 - **Node.js 18 or newer** (https://nodejs.org). It runs the Drips page: your
-  saved drips, the editor, and effects when they play in the page.
+  saved drips and the editor.
 
 ## Install
 
@@ -70,7 +70,7 @@ A recipe is a few words, in any order:
   starts 1.5 seconds after the one before.
 - **A number between 0 and 1**: how see-through the effect is (`0.4`).
 - **`-1`**: keep playing. The effect stays until you play the same
-  recipe again, run `/drip stop`, or press Esc in the Drips page. Nothing
+  recipe again, run `/drip stop`, or press Stop in the Drips page. Nothing
   plays for longer than 30 minutes.
 - **A saved drip's name**: its effects join in.
 
@@ -91,9 +91,6 @@ Open `/config` and find **Where effects play** under Drips:
   above every app and on every Space. Fullscreen needs a plan with the
   `fullscreen` limit on; without it, effects play over Claude's window and
   Drips says so once.
-- **browser-pane** plays effects in the Drips page, in the desktop app's
-  Browser pane. The first effect opens the page. Outside the desktop app,
-  the page opens in your own browser.
 
 Effects never take the pointer or the keyboard: you can keep working
 through them. The first effect over Claude's window or the screen takes a
@@ -103,11 +100,12 @@ needs no extra permission for this: it reads only where Claude's window is
 and how big, never what's in it, so macOS doesn't ask for Screen Recording.
 
 Before version 1.1, **claude-window** meant the page in the Browser pane. If
-you chose it then, effects now play over Claude's window itself. Choose
-**browser-pane** for the page.
+you chose it then, effects now play over Claude's window itself. Version 1.1
+had a third choice, **browser-pane**, that played effects in the Drips page;
+it's gone since 1.2, and a stored browser-pane plays over Claude's window.
 
-Previews from the Drips page always play in the page, and a preview that
-keeps playing stops by itself after 12 seconds.
+Previews from the Drips page play where every effect plays, and a preview
+that keeps playing stops by itself after 12 seconds.
 
 ## The Drips page
 

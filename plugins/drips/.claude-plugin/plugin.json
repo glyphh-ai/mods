@@ -1,6 +1,6 @@
 {
   "name": "drips",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Drips: visual effects over Claude (confetti, fireworks, hearts, a matrix rain), over Claude's window or the whole screen; save your own recipes and let Claude play them",
   "author": { "name": "Glyphh AI", "url": "https://glyphh.ai" },
   "types": "./types/index.d.ts",
@@ -8,9 +8,9 @@
     "display": {
       "type": "string",
       "title": "Where effects play",
-      "description": "claude-window plays them over the window Claude runs in (the desktop app, or your terminal); fullscreen over the whole screen under the pointer; browser-pane in the Drips page in Claude's Browser pane. claude-window and fullscreen need macOS and Swift from the Xcode Command Line Tools.",
+      "description": "claude-window plays them over the window Claude runs in (the desktop app, or your terminal); fullscreen over the whole screen under the pointer. Both need macOS and Swift from the Xcode Command Line Tools.",
       "default": "claude-window",
-      "options": ["claude-window", "fullscreen", "browser-pane"]
+      "options": ["claude-window", "fullscreen"]
     },
     "confetti_after_long_turn": {
       "type": "boolean",

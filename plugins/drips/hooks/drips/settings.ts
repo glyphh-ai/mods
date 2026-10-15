@@ -1,12 +1,12 @@
 // The mod's /config rows (plugin.json `userConfig`), as `register` receives
 // them: where effects play, and the two optional fun hooks (off unless set).
 //
-// `display` before 1.1.0 had two values: claude-window (then the Drips page
-// in the Browser pane) and fullscreen. claude-window now means the overlay
-// over Claude's window itself, and the page is browser-pane. A stored
-// claude-window is kept as it is: it asked for effects over Claude's window,
-// which the new default does, without the Browser pane; anyone who wants the
-// page picks browser-pane. Nothing is rewritten in the person's settings.
+// `display` is claude-window (the default) or fullscreen: the native overlay
+// over Claude's window, or over the whole screen. A claude-window stored
+// before 1.1.0 (then the Drips page in the Browser pane) keeps its name and
+// now plays over Claude's window. browser-pane (1.1.0) is gone since 1.2.0:
+// stored, it reads as the default. Nothing is rewritten in the person's
+// settings.
 import type { PluginOptions } from 'claude-code'
 
 import type { Display } from '../../types'
@@ -21,7 +21,7 @@ export type Settings = {
 
 export const DEFAULT_SETTINGS: Settings = { display: 'claude-window', confettiAfterLongTurn: false, matrixWhileTools: false }
 
-export const DISPLAYS: readonly Display[] = ['claude-window', 'fullscreen', 'browser-pane']
+export const DISPLAYS: readonly Display[] = ['claude-window', 'fullscreen']
 
 /** A stored `display` made whole: one of DISPLAYS, else the default. */
 export function displayOf(value: unknown): Display {

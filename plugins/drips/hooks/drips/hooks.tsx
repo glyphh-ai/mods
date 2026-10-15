@@ -19,7 +19,7 @@ import { ancestorsOf, eventsOf, nativeHost, prepareOverlay, type NativeDeps, typ
 import { findNode, NODE_MISSING } from './node.ts'
 import { settingsOf, type Settings } from './settings.ts'
 import { selectTarget, type Target, type TerminalEnv } from './target.ts'
-import { showPage, shownText, windowHost, type PageDeps, type WindowHost } from './window.ts'
+import { showPage, shownText, type PageDeps } from './window.ts'
 
 const account = atom({ plugin: 'drips', key: 'account' } as const, INITIAL)
 const helperInfo = atom({ plugin: 'drips', key: 'helper' } as const, null as HelperInfo | null)
@@ -32,8 +32,6 @@ const NOT_A_RECIPE = ['save', 'delete', 'list']
 /** This load's pieces: made at the session's start (a reload makes them again). */
 type Mod = {
   manager: Manager
-  /** The Drips page in the Browser pane. */
-  window: WindowHost
   /** The native overlay's binary, built on first use. */
   native: Promise<Prepared> | null
   /** The window Claude runs in, found on first use. */
@@ -46,11 +44,14 @@ let mod: Mod | null = null
 let helper: Link | null = null
 let collecting: Timer | null = null
 let starting: Promise<Link> | null = null
-/** Each fallback is said once per load: the overlay unavailable, fullscreen
- *  left out of the plan, Claude's window not found. */
-let isFallbackSaid = false
+/** Each is said once per load: the overlay unavailable, fullscreen left out
+ *  of the plan, Claude's window not found. */
+let isUnavailableSaid = false
 let isPlanFallbackSaid = false
 let isMissedSaid = false
+
+/** The overlay cannot run here: said once by a toast, never again by report. */
+class Unavailable extends Error {}
 
 const short = (err: unknown) => String(err instanceof Error ? err.message : err).replace(/^(Hooks)?Error: /, '').slice(0, 300)
 
@@ -69,7 +70,6 @@ function pageDeps($: EngineInterface): PageDeps {
       void $.clock.after(0, () => {
         $.prompt.submit({ text }).catch(() => $.ui.toast('The Browser pane is not available: allow mcp__Claude_Browser__preview_start'))
       }),
-    sleep: ms => $.clock.sleep(ms),
     link: () => startHelper($),
     tab: { get: () => read($, pageTab), set: async fn => void (await update($, pageTab, fn)) },
   }
@@ -87,14 +87,14 @@ function nativeDeps($: EngineInterface): NativeDeps {
 }
 
 function build($: EngineInterface): Mod {
-  const report = (err: unknown) => $.ui.toast(`Drips: ${short(err)}`)
+  const report = (err: unknown) => void (err instanceof Unavailable || $.ui.toast(`Drips: ${short(err)}`))
   const manager = createManager({
     store: store($),
     customs: () => readCustoms(store($)),
     after: (ms, fn) => void $.clock.after(ms, fn),
     report,
   })
-  const m: Mod = { manager, window: windowHost(pageDeps($)), native: null, target: null, fun: null as never }
+  const m: Mod = { manager, native: null, target: null, fun: null as never }
   m.fun = createFun(
     {
       isAllowed: async () => !(await refused($)),
@@ -136,26 +136,24 @@ function placement($: EngineInterface, m: Mod, binary: string, display: 'claude-
   }
 }
 
-/** Where effects play now: the setting's host. A preview plays in the page.
- *  Fullscreen left out of the plan plays over Claude's window; where the
- *  native overlay cannot run here, effects play in the page (each said once). */
-async function hostOf($: EngineInterface, m: Mod, preview = false): Promise<Host> {
-  let display = preview ? 'browser-pane' : settings.display
+/** Where effects play now: the setting's host, the native overlay. Fullscreen
+ *  left out of the plan plays over Claude's window (said once). Where the
+ *  overlay cannot run here (not a Mac, no Command Line Tools), nothing plays:
+ *  a toast says why, once, and the play answers with the same reason. */
+async function hostOf($: EngineInterface, m: Mod): Promise<Host> {
+  let display = settings.display
   const planRefuses = display === 'fullscreen' ? refusal(await read($, account), await $.clock.now(), 'fullscreen') : null
   if (planRefuses) {
     if (!isPlanFallbackSaid) $.ui.toast(`${planRefuses} Playing over Claude's window instead.`)
     isPlanFallbackSaid = true
     display = 'claude-window'
   }
-  if (display !== 'browser-pane') {
-    m.native ??= prepareOverlay(nativeDeps($))
-    const prepared = await m.native
-    if ('binary' in prepared) return nativeHost(nativeDeps($), prepared.binary, placement($, m, prepared.binary, display))
-    if (!isFallbackSaid) $.ui.toast(`${prepared.missing} Playing in the Drips page instead.`)
-    isFallbackSaid = true
-  }
-  if (!(await read($, nodePath))) throw new Error(NODE_MISSING)
-  return m.window
+  m.native ??= prepareOverlay(nativeDeps($))
+  const prepared = await m.native
+  if ('binary' in prepared) return nativeHost(nativeDeps($), prepared.binary, placement($, m, prepared.binary, display))
+  if (!isUnavailableSaid) $.ui.toast(prepared.missing)
+  isUnavailableSaid = true
+  throw new Unavailable(prepared.missing)
 }
 
 /** Why effects may not play now (signed out, not in the plan), or null. */
@@ -189,17 +187,12 @@ async function pushLibrary($: EngineInterface): Promise<void> {
 
 /** What the page asked: a preview played, everything stopped, a recipe saved or deleted. */
 async function onPage($: EngineInterface, m: PageMessage): Promise<void> {
-  const { manager, window } = modOf($)
-  if (m.t === 'closed') return window.closed(m.effect)
-  if (m.t === 'stop') {
-    await manager.stopAll()
-    await helper?.stop()
-    return
-  }
+  const { manager } = modOf($)
+  if (m.t === 'stop') return manager.stopAll()
   if (m.t === 'play') {
     const no = await refused($)
     if (no) return $.ui.toast(no)
-    await manager.execute(() => hostOf($, modOf($), true), m.recipe, { preview: true })
+    await manager.execute(() => hostOf($, modOf($)), m.recipe, { preview: true })
     return
   }
   if (m.t === 'save') {
@@ -221,7 +214,7 @@ async function attach($: EngineInterface, link: Link): Promise<Link> {
     link
       .inbox()
       .then(async messages => {
-        for (const m of messages) await onPage($, m).catch(err => $.ui.toast(`Drips: ${short(err)}`))
+        for (const m of messages) await onPage($, m).catch(err => void (err instanceof Unavailable || $.ui.toast(`Drips: ${short(err)}`)))
       })
       .catch(async () => {
         if (helper !== link) return
@@ -235,17 +228,13 @@ async function attach($: EngineInterface, link: Link): Promise<Link> {
 }
 
 /** The helper kept from before this load: found again when its code is this
- *  copy's (its looping effects ended: this load starts with none); told to
- *  leave when it is not. */
+ *  copy's; told to leave when it is not. */
 async function reattach($: EngineInterface, version: string): Promise<Link | null> {
   const kept = await read($, helperInfo)
   if (!kept) return null
   const link = linkOf($, kept)
   const running = await link.state().then(s => s.version, () => null)
-  if (running === version) {
-    await link.stop().catch(() => undefined)
-    return attach($, link)
-  }
+  if (running === version) return attach($, link)
   if (running !== null) await link.quit().catch(() => undefined)
   collecting?.cancel()
   helper = null
@@ -318,7 +307,7 @@ export function drips(on: On, options: PluginOptions) {
   settings = settingsOf(options)
   mod = null
   helper = null
-  isFallbackSaid = false
+  isUnavailableSaid = false
   isPlanFallbackSaid = false
   isMissedSaid = false
 
@@ -348,7 +337,6 @@ export function drips(on: On, options: PluginOptions) {
       const m = modOf($)
       const text = await m.manager.execute(() => hostOf($, m), line)
       if (sub === 'save' || sub === 'delete') await pushLibrary($).catch(() => undefined)
-      if (sub === 'stop') await helper?.stop().catch(() => undefined) // frames a reload left behind
       return { text }
     } catch (err) {
       return { text: `/drip: ${short(err)}` }
@@ -399,7 +387,7 @@ export function drips(on: On, options: PluginOptions) {
   on('turn.complete', async ($, e, next) => {
     void modOf($)
       .fun.turnEnd({ durationMs: e.durationMs, reason: e.reason, isMainLoop: !e.agentId })
-      .catch(err => $.ui.toast(`Drips: ${short(err)}`))
+      .catch(err => void (err instanceof Unavailable || $.ui.toast(`Drips: ${short(err)}`)))
     return next(e)
   })
 }

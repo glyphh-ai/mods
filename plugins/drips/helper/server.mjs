@@ -1,6 +1,6 @@
 // server.mjs — the Drips page's helper: one local web page, the Drips list
-// and editor, that also plays effects over itself (./runner.mjs) in the
-// desktop app's Browser pane.
+// and editor, in the desktop app's Browser pane. Effects play over Claude's
+// window or the whole screen (the mod's native overlay), never in the page.
 //
 // Started by the mod, detached (DRIPS_DETACH=1: it starts itself again in a
 // session of its own and the first copy exits), so it outlives the mod's
@@ -10,11 +10,10 @@
 // /api/quit) or when the mod has not asked for the page's messages for 30
 // seconds.
 //
-// The mod sends the saved drips (POST /api/library), effects to play (POST
-// /api/play, /api/close, /api/stop) and the Glyphh account's state in words
-// (POST /api/licence-state: the plan and its limits, never the token); the
-// page reports its size (POST /api/viewport) and leaves its asks (POST
-// /api/ask: play, stop, save, delete, closed; POST /api/licence: signin,
+// The mod sends the saved drips (POST /api/library) and the Glyphh account's
+// state in words (POST /api/licence-state: the plan and its limits, never the
+// token); the page leaves its asks (POST /api/ask: play, stop, save, delete;
+// POST /api/licence: signin,
 // cancel, upgrade, billing, addon, confirm) for the mod to collect (GET /api/inbox,
 // GET /api/licence-inbox). Everything reaches the page on one event stream
 // (GET /events).
@@ -55,15 +54,14 @@ const KEYS = openKeys({ random: () => randomBytes(24).toString("hex") })
 const ASSETS = {
   "/page.js": "text/javascript",
   "/builder.mjs": "text/javascript",
-  "/runner.mjs": "text/javascript",
   "/page.css": "text/css",
 }
-const DISPLAYS = ["claude-window", "fullscreen", "browser-pane"]
-const ASKS = ["play", "stop", "save", "delete", "closed"]
+const DISPLAYS = ["claude-window", "fullscreen"]
+const ASKS = ["play", "stop", "save", "delete"]
 const isLicenceAction = a => ["signin", "cancel", "upgrade", "billing", "addon", "confirm"].includes(a) || /^upgrade:[a-z_]{1,40}$/.test(String(a))
 
 const SECURITY = {
-  "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-src 'self' about:; frame-ancestors 'none'",
+  "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-src 'none'; frame-ancestors 'none'",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",
   "Cache-Control": "no-store",
@@ -74,7 +72,6 @@ const licenceAsks = []
 let heardFrom = Date.now()
 let library = { drips: [], effects: [], display: "claude-window" }
 let licenceState = null
-let viewport = null
 const events = new Set()
 
 /** A message for the mod: kept for GET /api/inbox, and printed when run by hand. */
@@ -115,13 +112,6 @@ function page(req, url, res) {
   res.end(readFileSync(join(HERE, "page.html"), "utf8").replace("__DRIPS_TOKEN__", TOKEN))
 }
 
-/** A play the mod sent, checked before it goes to the page. */
-function playOf(body) {
-  const kind = body?.kind === "loop" ? "loop" : body?.kind === "one-shot" ? "one-shot" : null
-  if (!kind || typeof body.effect !== "string" || typeof body.html !== "string" || typeof body.closeAfterMs !== "number") return null
-  return { t: "play", kind, effect: body.effect, html: body.html, closeAfterMs: body.closeAfterMs }
-}
-
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`)
   if (req.method === "GET" && url.pathname === "/" && url.searchParams.has("k")) return page(req, url, res)
@@ -140,7 +130,7 @@ const server = createServer(async (req, res) => {
     if (route === "POST /api/key") {
       json(res, { key: KEYS.issue(Date.now()) })
     } else if (route === "GET /api/state") {
-      json(res, { version: VERSION, open: events.size, viewport })
+      json(res, { version: VERSION, open: events.size })
     } else if (route === "GET /api/inbox") {
       heardFrom = Date.now()
       json(res, { messages: inbox.splice(0) })
@@ -153,22 +143,6 @@ const server = createServer(async (req, res) => {
       json(res, {})
     } else if (route === "GET /api/library") {
       json(res, library)
-    } else if (route === "POST /api/play") {
-      const play = playOf(await readBody(req))
-      if (!play) return json(res, { error: "not a play" }, 400)
-      emit(play)
-      json(res, {})
-    } else if (route === "POST /api/close") {
-      const body = await readBody(req)
-      if (typeof body?.effect === "string") emit({ t: "close", effect: body.effect })
-      json(res, {})
-    } else if (route === "POST /api/stop") {
-      emit({ t: "stop" })
-      json(res, {})
-    } else if (route === "POST /api/viewport") {
-      const body = await readBody(req)
-      if (Number(body?.w) > 0 && Number(body?.h) > 0) viewport = { w: Math.round(body.w), h: Math.round(body.h) }
-      json(res, {})
     } else if (route === "POST /api/ask") {
       const body = await readBody(req)
       if (!ASKS.includes(body?.t)) return json(res, { error: "unknown ask" }, 400)

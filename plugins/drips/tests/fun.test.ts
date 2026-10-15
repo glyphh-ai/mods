@@ -112,9 +112,10 @@ describe('the /config rows', () => {
     expect(settingsOf({ display: 'sideways', confetti_after_long_turn: 'yes' })).toEqual(DEFAULT_SETTINGS)
   })
 
-  test('display: claude-window (the default), fullscreen or browser-pane; anything else is the default', () => {
+  test('display: claude-window (the default) or fullscreen; anything else, a browser-pane stored by 1.1 too, is the default', () => {
     expect(DEFAULT_SETTINGS.display).toBe('claude-window')
-    for (const d of ['claude-window', 'fullscreen', 'browser-pane'] as const) expect(displayOf(d)).toBe(d)
+    for (const d of ['claude-window', 'fullscreen'] as const) expect(displayOf(d)).toBe(d)
+    expect(displayOf('browser-pane')).toBe('claude-window')
     expect(displayOf(undefined)).toBe('claude-window')
     expect(displayOf('window')).toBe('claude-window')
   })

@@ -175,7 +175,9 @@ and its refusal line, so a save past a limit is refused inline with
 - **macOS.** Drawing over Claude's own window is a native helper in
   `native/`, built on the buyer's Mac with `swiftc` on first use (never an
   Xcode prompt: check `xcode-select -p` before `xcrun`) and kept in
-  `~/Library/Caches/glyphh-<mod>`, one binary per hash of its source. It
+  `~/Library/Caches/glyphh-<mod>`, one binary per hash of its source.
+  Without the Command Line Tools a toast says once to install them, and
+  nothing plays (no fallback to a page). It
   finds the window Claude runs in (the desktop app,
   `com.anthropic.claudefordesktop`, or the terminal app hosting Claude Code,
   from the process's ancestors and `TERM_PROGRAM`/`__CFBundleIdentifier`)
@@ -190,7 +192,8 @@ and its refusal line, so a save past a limit is refused inline with
   same: the target window from the process's ancestors, its rectangle from
   `GetWindowRect`/`DwmGetWindowAttribute`, a layered `WS_EX_TRANSPARENT`
   tool window placed just above it with `SetWindowPos`. Until then a mod
-  falls back to its page in the Browser pane.
+  that needs the overlay says once, by a toast, that it needs a Mac, and
+  plays nothing. It never falls back to a page.
 
 ## The helper process
 
