@@ -519,13 +519,16 @@ async function refresh() {
   if (r.ok) lib = r.body
 }
 
-window.WORKSPACES_EDITOR = {
+window.WORKSPACES.ready("WORKSPACES_EDITOR", {
   /** Shows the editor on one of its lists. */
   async show(view) {
     await refresh()
     root.classList.remove("hidden")
+    if (view === "new-favorite") return editFavorite(null)
     go(view === "favorites" ? "favorites" : "list")
   },
+  /** Asks before something is deleted, in the editor's own dialog. */
+  confirm: confirmAction,
   hide() {
     root.classList.add("hidden")
   },
@@ -535,4 +538,4 @@ window.WORKSPACES_EDITOR = {
     await refresh()
     if (page === "list" || page === "favorites" || page === "licence") render()
   },
-}
+})

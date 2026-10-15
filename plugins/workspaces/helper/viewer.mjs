@@ -42,6 +42,8 @@ import { fileURLToPath } from "node:url"
 
 import { startChrome } from "./chrome.mjs"
 import { isAllowed, isLocal, openKeys } from "./gate.mjs"
+import { parseEcho } from "./echo-model.mjs"
+import { faviconCandidates, faviconTarget, isIcon } from "./favicon.mjs"
 import { checkFavorite, checkFavoriteDelete, checkWorkspace, checkWorkspaceDelete, pickedFolder } from "./library.mjs"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -79,6 +81,8 @@ let layouts = []
 let active = ""
 let library = { workspaces: [], favorites: [], choices: { models: [], efforts: [] } }
 let picking = false
+let settings = {}
+const favicons = new Map() // site origin → { type, bytes } | null, for this helper's life
 // The licence as the mod tells it (its state in words, never the licence),
 // and what the page asked of it, for the mod to collect.
 let licenceState = null
@@ -94,7 +98,51 @@ function writeAtomic(path, value) {
 }
 
 const workspacePath = slug => join(LIBRARY, "workspaces", `${slug}.json`)
-const ASSETS = { "/ws/workspaces.js": "text/javascript", "/ws/grid.mjs": "text/javascript", "/ws/workspaces.css": "text/css" }
+const ASSETS = {
+  "/ws/workspaces.js": "text/javascript",
+  "/ws/grid.mjs": "text/javascript",
+  "/ws/workspaces.css": "text/css",
+  "/ws/echo.js": "text/javascript",
+  "/ws/echo-model.mjs": "text/javascript",
+  "/ws/echo.css": "text/css",
+}
+
+/** Fetched with a time limit and a size limit; null on any failure. */
+async function fetchLimited(url, limit) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000), redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (Macintosh) Chrome/140.0.0.0 Safari/537.36" } })
+    if (!res.ok) return null
+    const bytes = Buffer.from(await res.arrayBuffer())
+    return bytes.length <= limit ? { type: res.headers.get("content-type") ?? "", bytes } : null
+  } catch {
+    return null
+  }
+}
+
+/** A favourite's icon: the ones its page names, else /favicon.ico. */
+async function favicon(target) {
+  if (favicons.has(target.origin)) return favicons.get(target.origin)
+  const page = await fetchLimited(target.href, 1024 * 1024)
+  let icon = null
+  for (const url of faviconCandidates(target.href, page?.bytes.toString("utf8") ?? "")) {
+    const got = await fetchLimited(url, 512 * 1024)
+    if (got && isIcon(got.type, got.bytes.length)) {
+      icon = got
+      break
+    }
+  }
+  favicons.set(target.origin, icon)
+  return icon
+}
+
+const echoPath = () => join(LIBRARY, "echo.json")
+function readEcho() {
+  try {
+    return parseEcho(JSON.parse(readFileSync(echoPath(), "utf8")))
+  } catch {
+    return parseEcho(null)
+  }
+}
 
 // ── Streams ─────────────────────────────────────────────────────────────────
 
@@ -194,7 +242,7 @@ const server = createServer(async (req, res) => {
       json(res, (await chrome.text(url.searchParams.get("cell") ?? "")) ?? { error: "no such page" })
     } else if (route === "GET /api/state") {
       json(res, {
-        version: VERSION, layouts, active, open: pagesOpen(),
+        version: VERSION, layouts, active, settings, open: pagesOpen(),
         pages: [...chrome.pages.values()].map(p => ({ cell: p.cell, url: p.url, title: p.title })),
       })
     } else if (route === "POST /api/active") {
@@ -206,6 +254,7 @@ const server = createServer(async (req, res) => {
       const body = await readBody(req)
       if (Array.isArray(body?.layouts)) layouts = body.layouts
       if (typeof body?.active === "string") active = body.active
+      if (body?.settings && typeof body.settings === "object") settings = body.settings
       if (Array.isArray(body?.library?.workspaces) && Array.isArray(body?.library?.favorites)) {
         library = { workspaces: body.library.workspaces, favorites: body.library.favorites, choices: body.library.choices ?? { models: [], efforts: [] } }
       }
@@ -240,6 +289,22 @@ const server = createServer(async (req, res) => {
       if (done.error) return json(res, { error: done.error }, 400)
       emit({ t: "library" })
       json(res, done)
+    } else if (route === "GET /api/favicon") {
+      const target = faviconTarget(url.searchParams.get("url"))
+      const icon = target && (await favicon(target))
+      if (!icon) {
+        res.writeHead(404, SECURITY)
+        return res.end()
+      }
+      res.writeHead(200, { ...SECURITY, "Content-Type": icon.type, "Cache-Control": "private, max-age=86400" })
+      res.end(icon.bytes)
+    } else if (route === "GET /api/echo") {
+      json(res, LIBRARY ? readEcho() : parseEcho(null))
+    } else if (route === "POST /api/echo") {
+      if (!LIBRARY) return json(res, { error: "There is nowhere to save: HOME is not set." }, 500)
+      const echo = parseEcho(await readBody(req))
+      writeAtomic(echoPath(), echo)
+      json(res, { ok: true })
     } else if (route === "POST /api/licence-state") {
       const body = await readBody(req)
       licenceState = body?.status ?? null

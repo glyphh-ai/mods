@@ -446,8 +446,8 @@ select.settings-input {
 /* ── Placed in the layout page ─────────────────────────────────────────── */
 .ws-view .settings-input:focus, .ws-view .cell-panel-search:focus, .cell-panel-search:focus { border-color: var(--c-accent); }
 .ws-view {
-  position: absolute; inset: 36px 0 0 0; z-index: 10; overflow: auto;
-  padding: 20px 28px 40px; background: var(--bg); color: var(--text);
+  position: absolute; inset: 0; z-index: 25; overflow: auto;
+  padding: 96px 28px 40px; background: var(--bg); color: var(--text);
   font: 13px/1.45 var(--font-sans);
 }
 .ws-view .ws-page { max-width: 1100px; margin: 0 auto; }

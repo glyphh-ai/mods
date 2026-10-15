@@ -76,10 +76,46 @@ folder, the session moves there.
 
 ## The layout page
 
-The layout page has a tab for each workspace (alt+1 to alt+9 also switch).
-You can drag the lines between cells to resize them, and the new sizes
-are saved to the workspace. Click a page to type into it. Each cell has its
-own back, reload and address bar.
+The layout page opens on the **wall**: your favourites and workspaces as
+tiles, a page at a time. A workspace's tile shows its first four cells.
+Swipe or click the dots to turn pages. Type to search: tiles that don't match
+dim, Enter opens the best match, and Esc clears the search.
+
+Press and hold a tile to edit the wall:
+
+- Drag tiles to reorder them.
+- Drop one tile on another to make a folder, or drop a tile on a folder to add it.
+- Open a folder to rename it, or drag a tile out of the folder to put it back.
+- Click ✕ to delete a favourite or a workspace, or to ungroup a folder.
+
+The **dock** at the top holds Close all, Workspaces (the editor), New favourite
+and any tile you drag into it. It magnifies under the pointer. While pages
+are open it slides away, and it comes back when the pointer reaches the top.
+
+A favourite opens as a live **card**. Cards fill columns two at a time. You
+can:
+
+- Drag the lines between cards to resize them.
+- Drag a card by its header onto another card to swap them, or to the side to
+  give it a column of its own.
+- Expand a card, or close it. A closed page keeps its place for next time.
+- Pin a card so that the next favourite you open replaces it.
+
+A workspace opens as its grid of cards. Close all closes everything. A page
+is never shown twice: opening a favourite that is already on screen moves it.
+Opening a favourite while a workspace is up turns the workspace into loose
+cards. Alt+1 to alt+9 open the first nine workspaces.
+
+### Settings
+
+The settings are in Claude's own `/config`, under Workspaces:
+
+| Setting | Values | Default |
+| --- | --- | --- |
+| home | `wall`, or `last workspace` (opens what you had up last time) | wall |
+| dock | `on`, or `off` (the dock's items lead the wall instead) | on |
+| hide the dock behind cards | `on`, `off` | on |
+| icons per page | `24`, `40`, `56` | 40 |
 
 Claude can read a page in the layout page only through the `page_read`
 tool. It asks first, under your permission settings, and it treats what it
@@ -87,8 +123,8 @@ reads as untrusted content.
 
 ## The workspace editor
 
-`/workspaces`, or **Workspaces…** in the layout page's top bar, opens the
-editor.
+`/workspaces`, or **Workspaces** in the layout page's dock, opens the
+editor. Esc or the dock closes it.
 
 **Your workspaces** shows each workspace as a card with a small picture of
 its grid. Click **+ Add** to make a workspace, or click a card to edit one.
@@ -146,6 +182,7 @@ Everything stays on your machine:
 
 - Each workspace is a file: `~/.glyphh/workspaces/<name>.json`.
 - Favourites are in `~/.glyphh/favorites.json`.
+- The wall's order, folders, dock and open cards are in `~/.glyphh/echo.json`.
 - Sign-ins for the pages are kept in Chrome's own profile for Workspaces,
   in `~/Library/Application Support/glyphh-workspaces/chrome`.
 
@@ -184,5 +221,7 @@ A workspace file looks like this:
   another site.
 - The session key is never written to a file or a log. The page is opened
   with a one-time address that stops working once it has been used.
+- Favicons come through the same server and need the same key. It fetches
+  only `http` and `https` pages, and serves only small images.
 - Workspaces controls its Chrome through a private pipe, not a network
   port, so no other program can take control of the signed-in pages.
