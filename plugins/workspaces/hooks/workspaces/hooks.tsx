@@ -9,7 +9,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, Timer } from 'claude-code'
 
 import type { Choices, Entry, Favorite, HelperInfo, Requirements } from '../../types'
-import { INITIAL, refusal } from '../licence/access.ts'
+import { access, gate, INITIAL, refusal } from '../licence/access.ts'
 import { findFile, openPage, showFile, togglePane, type App, type MenuPane } from './desktop.ts'
 import { findWorkspace, listText } from './dip.ts'
 import { load, patchWorkspace, type Disk } from './files.ts'
@@ -22,7 +22,7 @@ import { HELPER_FILES, linkTo, versionOf, type Link, type ViewerMessage } from '
 const ORDER_KEY = 'workspaceOrder'
 const DESKTOP_ONLY = 'Workspaces drives the Claude desktop app: run this in a desktop app session.'
 
-const licence = atom({ plugin: 'workspaces', key: 'licence' } as const, INITIAL)
+const account = atom({ plugin: 'workspaces', key: 'account' } as const, INITIAL)
 const entries = atom({ plugin: 'workspaces', key: 'entries' } as const, [] as Entry[])
 const favorites = atom({ plugin: 'workspaces', key: 'favorites' } as const, [] as Favorite[])
 const active = atom({ plugin: 'workspaces', key: 'active' } as const, null as string | null)
@@ -126,6 +126,7 @@ function switcher($: EngineInterface): Switcher {
     previous: { get: () => read($, previous), set: async fn => void (await update($, previous, fn)) },
     layoutTab: { get: () => read($, layoutTab), set: async fn => void (await update($, layoutTab, fn)) },
     missing: async () => missingText(await read($, requirements)),
+    liveRefused: () => liveRefused($),
     link: () => startHelper($),
     running: () => helper?.link ?? null,
   }
@@ -241,9 +242,14 @@ function startHelper($: EngineInterface): Promise<Link> {
   return starting
 }
 
-/** Why a gated command may not run now (the trial is over), or null. */
+/** Why Workspaces may not be used now (signed out, not in the plan), or null. */
 async function refused($: EngineInterface): Promise<string | null> {
-  return refusal(await read($, licence), await $.clock.now())
+  return gate(access(await read($, account), await $.clock.now()))
+}
+
+/** Why the live layout page may not run (the plan's `stream` limit), or null. */
+async function liveRefused($: EngineInterface): Promise<string | null> {
+  return refusal(await read($, account), await $.clock.now(), 'stream')
 }
 
 const isDesktop = async ($: EngineInterface) => (await $.session.surfaces()).includes('desktop')
@@ -253,8 +259,8 @@ const short = (err: unknown) => String(err).replace(/^(Hooks)?Error: /, '').slic
 async function registerCommands($: EngineInterface) {
   await $.command.register({
     name: 'workspaces',
-    description: 'Open a workspace, or its editor in the layout page; key <licence> unlocks Workspaces with a licence key',
-    argumentHint: '[key <licence>]',
+    description: 'Open the workspace editor in the layout page; signin or signout of Glyphh',
+    argumentHint: '[signin | signout]',
   })
   await $.command.register({ name: 'dip', description: 'Switch to a workspace: /dip 1, /dip Comms, /dip back', argumentHint: '<number | name | back>' })
   await $.command.register({ name: 'stream', description: 'Open the layout page in the Browser pane: /stream [workspace]', argumentHint: '[workspace]' })
@@ -317,9 +323,9 @@ export function workspaces(on: On, options: PluginOptions) {
     return next(e)
   })
 
-  // The layout page on its workspace editor (after the trial, its locked screen).
+  // The layout page on its workspace editor (signed out or not in the plan, its locked screen).
   on('command.run', { command: 'workspaces' }, async ($, e) => {
-    if (e.args.trim()) return { text: 'Usage: /workspaces [key <licence>]' }
+    if (e.args.trim()) return { text: 'Usage: /workspaces [signin | signout]' }
     if (!(await isDesktop($))) return { text: DESKTOP_ONLY }
     const all = await read($, entries)
     const name = (await read($, active)) ?? all[0]?.file.name ?? ''
@@ -341,7 +347,7 @@ export function workspaces(on: On, options: PluginOptions) {
   })
 
   on('command.run', { command: 'stream' }, async ($, e) => {
-    const no = await refused($)
+    const no = (await refused($)) ?? (await liveRefused($))
     if (no) return { text: no }
     if (!(await isDesktop($))) return { text: DESKTOP_ONLY }
     const all = await read($, entries)
@@ -370,7 +376,7 @@ export function workspaces(on: On, options: PluginOptions) {
   })
 
   on('tool.call', { tool: 'mcp__workspaces__page_read' }, async ($, e) => {
-    const no = await refused($)
+    const no = (await refused($)) ?? (await liveRefused($))
     if (no) return { result: { error: no } }
     if (!helper) return { result: { error: 'The layout page is not running: open it with /stream.' } }
     const favs = await read($, favorites)

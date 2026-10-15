@@ -1,18 +1,18 @@
-// A licence is base64url(JSON payload) "." base64url(Ed25519 signature over
-// the first part), signed by the site. Checked here, offline, with the public
-// key in ./site: no call home once a mod holds one. The mods' environment
-// has crypto.subtle.digest but no importKey, so the signature is checked by
-// @noble/ed25519 (./vendor), which hashes with that digest.
-import { PUBLIC_KEY } from './site.ts'
+// The plan's licence, checked here offline: the server signs its payload's
+// canonical JSON (./canonical) with Ed25519, and the mod holds the public key
+// (./server). The mods' environment has crypto.subtle.digest but no
+// importKey, so the signature is checked by @noble/ed25519 (./vendor), which
+// hashes with that digest. A licence for another install, or one whose
+// signature does not hold, is never used.
+import type { Limits, LicencePayload } from '../../types'
+import { canonical, member, parseLexical, plain, type Lexical } from './canonical.ts'
+import { PUBLIC_KEY } from './server.ts'
 import { verifyAsync } from './vendor/ed25519.ts'
 
-export type Licence = { v: 1; mod: string; install: string; session: string; issued: string }
-
-const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
-
-export function fromB64url(text: string): Uint8Array {
-  const clean = text.replace(/=+$/, '')
-  if (!/^[A-Za-z0-9_-]*$/.test(clean)) throw new Error('not base64url')
+/** Bytes from base64, standard (the server's) or URL-safe, padded or not. */
+export function fromBase64(text: string): Uint8Array {
+  const clean = text.trim().replace(/=+$/, '').replace(/-/g, '+').replace(/_/g, '/')
+  if (!/^[A-Za-z0-9+/]*$/.test(clean) || clean.length % 4 === 1) throw new Error('not base64')
   const out: number[] = []
   let bits = 0
   let acc = 0
@@ -27,16 +27,52 @@ export function fromB64url(text: string): Uint8Array {
   return new Uint8Array(out)
 }
 
-/** The licence's payload when its signature holds and it is for `mod`; else null. */
-export async function verify(licence: string, mod: string, publicKey = PUBLIC_KEY): Promise<Licence | null> {
-  const parts = licence.trim().split('.')
-  if (parts.length !== 2) return null
-  try {
-    const ok = await verifyAsync(fromB64url(parts[1]!), new TextEncoder().encode(parts[0]), fromB64url(publicKey))
-    if (!ok) return null
-    const payload = JSON.parse(new TextDecoder().decode(fromB64url(parts[0]!))) as Partial<Licence>
-    return payload.v === 1 && payload.mod === mod ? (payload as Licence) : null
-  } catch {
-    return null
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+
+export type Checked = { payload: LicencePayload } | { error: 'malformed' | 'signature' | 'install' }
+
+const isLimits = (v: unknown): v is Limits =>
+  !!v && typeof v === 'object' && !Array.isArray(v) && Object.values(v).every(x => x === null || (typeof x === 'number' && Number.isFinite(x)))
+
+/** The payload's shape: what the mod reads of it. */
+export function payloadOf(v: unknown): LicencePayload | null {
+  const p = v as Record<string, unknown> | null
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return null
+  for (const k of ['install_id', 'user_id', 'org_id', 'plan', 'expires_at']) if (typeof p[k] !== 'string') return null
+  if (!Number.isFinite(Date.parse(p.expires_at as string))) return null
+  if (p.limits !== undefined && (!p.limits || typeof p.limits !== 'object')) return null
+  const mods = p.mods as Record<string, unknown> | null
+  if (!mods || typeof mods !== 'object' || Array.isArray(mods)) return null
+  for (const m of Object.values(mods)) {
+    const limits = (m as { limits?: unknown } | null)?.limits
+    if (!m || typeof m !== 'object' || (limits !== undefined && !isLimits(limits))) return null
   }
+  return p as unknown as LicencePayload
+}
+
+/** A licence as the server answers GET /v1/license, `{ payload, signature }`,
+ *  read keeping its numbers as written; checked for this install. */
+export async function verifyLicence(licence: Lexical, installId: string, publicKey = PUBLIC_KEY): Promise<Checked> {
+  const payload = member(licence, 'payload')
+  const signature = member(licence, 'signature')
+  const shaped = payload === undefined ? null : payloadOf(plain(payload))
+  if (!shaped || typeof signature !== 'string') return { error: 'malformed' }
+  try {
+    const ok = await verifyAsync(fromBase64(signature), new TextEncoder().encode(canonical(payload!)), fromBase64(publicKey))
+    if (!ok) return { error: 'signature' }
+  } catch {
+    return { error: 'signature' }
+  }
+  return shaped.install_id === installId ? { payload: shaped } : { error: 'install' }
+}
+
+/** The same, from the text of the server's answer. */
+export async function verifyText(text: string, installId: string, publicKey = PUBLIC_KEY): Promise<Checked> {
+  let lexical: Lexical
+  try {
+    lexical = parseLexical(text)
+  } catch {
+    return { error: 'malformed' }
+  }
+  return verifyLicence(lexical, installId, publicKey)
 }

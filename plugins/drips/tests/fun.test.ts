@@ -68,7 +68,7 @@ describe('matrix while tools run', () => {
     expect(theirs.log).toEqual([])
   })
 
-  test('nothing when the toggle is off or the trial is over', async () => {
+  test('nothing when the toggle is off or the plan closes Drips', async () => {
     const off = world({})
     await off.fun.toolStart()
     off.fun.toolEnd()
@@ -92,7 +92,7 @@ describe('confetti after a long turn', () => {
     expect(log).toEqual(['play confetti'])
   })
 
-  test('nothing when the toggle is off or the trial is over', async () => {
+  test('nothing when the toggle is off or the plan closes Drips', async () => {
     const off = world({})
     await off.fun.turnEnd({ durationMs: LONG_TURN_MS * 2, reason: 'answer', isMainLoop: true })
     const ended = world({ confettiAfterLongTurn: true }, { allowed: false })

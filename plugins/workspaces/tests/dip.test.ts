@@ -270,7 +270,7 @@ describe('/workspaces', () => {
   test('says what the layout page lacks, outside the desktop app says so, and other words get the usage', async ($, on) => {
     const { run } = await started($, on, { noNode: true })
     expect(await run('workspaces')).toBe('Workspaces: The layout page needs Node.js 18 or newer (https://nodejs.org). Install it, then start a new session.')
-    expect(await run('workspaces', 'hello')).toBe('Usage: /workspaces [key <licence>]')
+    expect(await run('workspaces', 'hello')).toBe('Usage: /workspaces [signin | signout]')
   })
 
   test('outside the desktop app it says so', async ($, on) => {

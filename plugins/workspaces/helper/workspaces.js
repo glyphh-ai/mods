@@ -29,7 +29,7 @@ const CLEAR_ICON = icon('<path d="M4 4l8 8"/><path d="M12 4l-8 8"/>')
 
 const root = document.getElementById("ws")
 let lib = { workspaces: [], favorites: [] }
-let page = "list" // list | edit | favorites | favorite | licence
+let page = "list" // list | edit | favorites | favorite
 let query = ""
 let draft = null // the workspace being edited
 let favDraft = null // the favourite being edited
@@ -103,34 +103,24 @@ function head(title, placeholder, onAdd) {
 
 function tabs(count) {
   const tab = (label, to) => el(`button.skills-tab${page === to ? ".active" : ""}`, { type: "button", onclick: () => go(to) }, label)
-  const licensed = window.WORKSPACES.licence?.kind === "licensed"
   return el(
     "div.skills-tabs",
     {},
     tab("Your workspaces", "list"),
     tab("Favourites", "favorites"),
-    licensed ? tab("Licence", "licence") : null,
     el("div", { style: "flex:1;" }),
     el("span.skills-count", {}, count),
   )
 }
 
-/** The licence, once bought: its state, and the key to carry to another Mac. */
-function renderLicence() {
-  const status = window.WORKSPACES.licence
-  return [
-    el("div.skills-head", {}, el("h2", {}, "Licence")),
-    tabs(""),
-    el(
-      "div.crud-inline-form",
-      {},
-      el("label.settings-label", { style: "margin-top:16px;" }, "Status"),
-      el("div.settings-hint", {}, `${status?.product ?? "Workspaces"} is unlocked on this Mac.`),
-      el("label.settings-label", { style: "margin-top:16px;" }, "Licence key"),
-      el("div.settings-hint", { style: "margin:-2px 0 8px;" }, `To use it on another Mac, copy the key and run ${status?.command ?? "/workspaces"} key <licence> there.`),
-      el("div", {}, el("button.action-btn", { type: "button", onclick: () => window.WORKSPACES.licenceAsk("copy") }, "Copy licence key")),
-    ),
-  ]
+/** A save's refusal, inline; one at a plan's limit carries Upgrade. */
+function formError(d) {
+  return el(
+    "div",
+    { class: d.error ? "crud-form-error" : "crud-form-error hidden" },
+    d.error ?? "",
+    d.limit ? el("button.action-btn.primary", { type: "button", style: "margin-left:10px;", onclick: () => window.WORKSPACES.licenceAsk(`upgrade:${d.limit}`) }, "Upgrade") : null,
+  )
 }
 
 /** The app's mini-grid: the split structure only. */
@@ -319,7 +309,7 @@ function renderEditor() {
       el("div.crud-spacer"),
       draft.original !== null ? el("button.action-btn.primary", { type: "button", title: "Open this workspace", onclick: () => openLayout(draft.original) }, "Open workspace") : null,
     ),
-    el("div.crud-form-error", { class: draft.error ? "crud-form-error" : "crud-form-error hidden" }, draft.error ?? ""),
+    formError(draft),
     el("div.edit-head", { style: "margin-top:12px;" }, el("div.edit-head-name", {}, draft.original ?? "New workspace")),
     el("div.app-detail-tabs", {}, el("button.app-detail-tab.active", { type: "button" }, "General")),
     el(
@@ -418,6 +408,7 @@ async function saveWorkspace() {
   })
   if (!r.ok) {
     draft.error = r.body.error ?? "The workspace could not be saved."
+    draft.limit = r.body.limit ?? null
     return render()
   }
   await refresh()
@@ -454,7 +445,7 @@ function renderFavorite() {
     "div.crud-inline-form",
     {},
     el("div.crud-inline-header", {}, el("button.skills-back", { type: "button", html: BACK_ICON, onclick: () => go("favorites") }, "Favourites"), el("div.crud-spacer")),
-    el("div", { class: d.error ? "crud-form-error" : "crud-form-error hidden" }, d.error ?? ""),
+    formError(d),
     el("div.edit-head", { style: "margin-top:12px;" }, el("div.edit-head-name", {}, d.id ? lib.favorites.find(f => f.id === d.id)?.name ?? d.name : "New favourite")),
     el("label.settings-label", { style: "margin-top:16px;" }, "Name"),
     el("input.settings-input", { type: "text", placeholder: "Gmail", spellcheck: "false", autocomplete: "off", value: d.name, oninput: e => (d.name = e.target.value) }),
@@ -482,6 +473,7 @@ async function saveFavorite() {
   const r = await api("/api/favorite", { id: favDraft.id, name: favDraft.name, url: favDraft.url, keep_in_panel: favDraft.keep })
   if (!r.ok) {
     favDraft.error = r.body.error ?? "The favourite could not be saved."
+    favDraft.limit = r.body.limit ?? null
     return render()
   }
   await refresh()
@@ -503,8 +495,7 @@ async function removeFavorite() {
 // ── Pages ────────────────────────────────────────────────────────────────────
 
 function render() {
-  if (page === "licence" && window.WORKSPACES.licence?.kind !== "licensed") page = "list"
-  const body = { list: renderList, edit: renderEditor, favorites: renderFavorites, favorite: renderFavorite, licence: renderLicence }[page]()
+  const body = { list: renderList, edit: renderEditor, favorites: renderFavorites, favorite: renderFavorite }[page]()
   root.replaceChildren(el("div.ws-page", {}, body))
 }
 
@@ -536,6 +527,6 @@ window.WORKSPACES.ready("WORKSPACES_EDITOR", {
   /** The library changed on disk: the lists follow (a form being filled stays). */
   async refresh() {
     await refresh()
-    if (page === "list" || page === "favorites" || page === "licence") render()
+    if (page === "list" || page === "favorites") render()
   },
 })

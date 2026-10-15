@@ -1,25 +1,24 @@
 // Copied from shared/licence/hooks.tsx by scripts/sync-shared.mjs: edit it there.
-// The licence, wired to the engine: the one file of this module that holds
-// `$` and the licence's state (the engine follows `$` and atoms only within
-// the file whose hook received them). It adds `/<MOD> key <licence>` to the
-// mod's command, and shows the licence in the mod's page: every second it
-// sends the page's helper the licence's state in words (pageStatus, never the
-// licence) when that changed, and takes what the page asked (Unlock, Cancel,
-// Copy licence key). Commands the trial gates check `refusal()` from ./access
-// themselves, reading this same state.
+// The account, wired to the engine: the one file of this module that holds
+// `$` and the account's state (the engine follows `$` and atoms only within
+// the file whose hook received them). It adds `/<MOD> signin` and
+// `/<MOD> signout` to the mod's command, and shows the account in the mod's
+// page: every second it sends the page's helper the account's state in words
+// (pageStatus, never the token) when that changed, and takes what the page
+// asked (Sign in, Cancel, Upgrade, Manage billing). Commands the plan limits
+// check `refusal()` from ./access themselves, reading this same state.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, Timer } from 'claude-code'
 
 import type { HelperInfo } from '../../types'
-import { INITIAL, PAGE_ACTIONS, pageStatus, type PageAction } from './access.ts'
-import { MOD, PRODUCT } from './config.ts'
-import { accept, buy, cancel, start, type Deps } from './flow.ts'
-import { verify } from './verify.ts'
+import { INITIAL, pageAction, pageStatus, type PageAction } from './access.ts'
+import { MOD } from './config.ts'
+import { billing, cancel, isLimit, signIn, signOut, start, upgrade, type Deps, type Machine } from './flow.ts'
 
 // The engine reads a state reference's plugin and key, and a hook's matcher,
 // as literals, so the mod's name ('workspaces', MOD in ./config) is written
 // out here too: scripts/sync-shared.mjs writes it in from MOD.
-const licence = atom({ plugin: 'workspaces', key: 'licence' } as const, INITIAL)
+const account = atom({ plugin: 'workspaces', key: 'account' } as const, INITIAL)
 /** Where the mod's page helper listens (the mod keeps it; read here only). */
 const helperInfo = atom({ plugin: 'workspaces', key: 'helper' } as const, null as HelperInfo | null)
 
@@ -27,18 +26,45 @@ const helperInfo = atom({ plugin: 'workspaces', key: 'helper' } as const, null a
 let sent = ''
 let syncing: Timer | null = null
 
+const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('')
+
+/** This Mac as the sign-in names it: a hash of its hardware UUID (never the
+ *  UUID itself), its name, the surface and this mod's version. */
+async function machine($: EngineInterface): Promise<Machine> {
+  const run = (argv: string[]) => $.process.run(argv).then(r => (r.exitCode === 0 ? r.stdout : ''), () => '')
+  const uuid = /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(await run(['/usr/sbin/ioreg', '-rd1', '-c', 'IOPlatformExpertDevice']))?.[1]
+  const machine_id = uuid ? hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(uuid))) : undefined
+  const name = ((await run(['/usr/sbin/scutil', '--get', 'ComputerName'])).trim() || 'Mac').slice(0, 80)
+  const surface = (await $.session.surfaces()).includes('desktop') ? 'desktop' : 'cli'
+  let mod_version = '0.0.0'
+  try {
+    const v = (JSON.parse(String(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`))) as { version?: unknown }).version
+    if (typeof v === 'string' && v) mod_version = v.slice(0, 40)
+  } catch {
+    // the version stays unknown
+  }
+  return { ...(machine_id ? { machine_id } : {}), name, surface, mod_version }
+}
+
 function deps($: EngineInterface): Deps {
   return {
-    store: {
-      get: key => $.store.get(key),
-      set: (key, value) => $.store.set(key, value),
-      delete: key => $.store.delete(key),
+    home: () => $.env.get('HOME'),
+    read: path => $.fs.read(path).then(String, () => null),
+    // umask 077: the file and its temporary name are the owner's alone from
+    // the first byte; the text goes on stdin, never in an argument.
+    writePrivate: async (path, text) => {
+      const dir = path.slice(0, path.lastIndexOf('/'))
+      const script = 'umask 077 && mkdir -p "$1" && t="$2.$$.tmp" && rm -f "$t" && cat > "$t" && mv -f "$t" "$2"'
+      const r = await $.process.run(['/bin/sh', '-c', script, 'sh', dir, path], { stdin: text })
+      if (r.exitCode !== 0) throw new Error(`could not write ${path}`)
     },
-    state: { get: () => read($, licence), set: async fn => void (await update($, licence, fn)) },
+    remove: async path => void (await $.process.run(['/bin/rm', '-f', path]).catch(() => null)),
+    fetch: (url, init) => $.http.fetch(url, init),
+    state: { get: () => read($, account), set: async fn => void (await update($, account, fn)) },
     now: () => $.clock.now(),
+    after: (ms, fn) => $.clock.after(ms, () => void fn()),
     every: (ms, fn) => $.clock.every(ms, () => void fn()),
-    check: async text => (await verify(text, MOD)) !== null,
-    fetch: url => $.http.fetch(url),
+    machine: () => machine($),
     open: async url => (await $.process.run(['open', url]).catch(() => null))?.exitCode === 0,
     copy: async text => (await $.ui.copy({ text })).isCopied,
     toast: text => $.ui.toast(text),
@@ -57,19 +83,19 @@ async function ask($: EngineInterface, info: HelperInfo, path: string, body?: un
   return JSON.parse(res.text) as Record<string, unknown>
 }
 
-/** What the page asked of the licence. */
+/** What the page asked of the account. */
 async function act($: EngineInterface, action: PageAction): Promise<void> {
   const d = deps($)
-  if (action === 'buy') await buy(d)
+  if (action === 'signin') await signIn(d)
   else if (action === 'cancel') await cancel(d)
+  else if (action === 'billing') await billing(d)
   else {
-    const held = (await read($, licence)).licence
-    const r = held ? await $.ui.copy({ text: held }) : { isCopied: false }
-    $.ui.toast(r.isCopied ? 'Licence key copied.' : 'The licence key could not be copied here.')
+    const limit = action.slice('upgrade:'.length)
+    await upgrade(d, action !== 'upgrade' && isLimit(limit) ? limit : undefined)
   }
 }
 
-/** The page's helper and the licence in step: its asks taken, its state sent when changed. */
+/** The page's helper and the account in step: its asks taken, its state sent when changed. */
 async function sync($: EngineInterface): Promise<void> {
   const info = await read($, helperInfo)
   if (!info) {
@@ -77,8 +103,11 @@ async function sync($: EngineInterface): Promise<void> {
     return
   }
   const asked = ((await ask($, info, '/api/licence-inbox')).actions as unknown[] | undefined) ?? []
-  for (const a of asked) if ((PAGE_ACTIONS as readonly unknown[]).includes(a)) await act($, a as PageAction)
-  const status = JSON.stringify(pageStatus(await read($, licence), await $.clock.now()))
+  for (const a of asked) {
+    const action = pageAction(a)
+    if (action) await act($, action)
+  }
+  const status = JSON.stringify(pageStatus(await read($, account), await $.clock.now()))
   if (status === sent) return
   await ask($, info, '/api/licence-state', { status: JSON.parse(status) })
   sent = status
@@ -101,9 +130,8 @@ export function licensing(on: On) {
 
   on('command.run', { command: 'workspaces' }, async ($, e, next) => {
     const words = e.args.trim().split(/\s+/)
-    if (words[0] !== 'key') return next(e)
-    if (words.length !== 2) return { text: `Usage: /${MOD} key <licence>` }
-    const ok = await accept(deps($), words[1]!)
-    return { text: ok ? `${PRODUCT} unlocked.` : 'That licence key did not check out.' }
+    if (words[0] !== 'signin' && words[0] !== 'signout') return next(e)
+    if (words.length !== 1) return { text: `Usage: /${MOD} ${words[0]}` }
+    return { text: words[0] === 'signin' ? await signIn(deps($)) : await signOut(deps($)) }
   })
 }

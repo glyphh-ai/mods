@@ -494,7 +494,7 @@ function layoutCards({ seams = true } = {}) {
   const want = wanted(band)
   if (expanded && ![...want.values()].some(w => w.id === expanded)) expanded = null
   for (const [k, e] of live) if (!want.has(k)) retire(k, e)
-  const covered = document.hidden || W.editorOpen() || W.licence?.kind === "expired"
+  const covered = document.hidden || W.editorOpen() || Boolean(W.licence?.gate)
   for (const [k, w] of want) {
     const e = live.get(k) ?? makeCard(k, w)
     e._w = w

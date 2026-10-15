@@ -84,10 +84,11 @@
   .view .input:focus { box-shadow: inset 0 0 0 1px var(--c-accent); }
   .native { flex: 1; display: grid; place-items: center; color: var(--c-text-2); text-align: center; padding: 12px; font-size: 12px; }
   .native b { color: var(--c-text); font-weight: 500; font-size: 13px; }
-  /* The licence: a quiet line at the top right during the trial, a locked screen after it. */
+  /* The account: a quiet line at the top right (the plan, Upgrade, Manage billing), a locked screen while signed out or not in the plan. */
   #licence { position: absolute; top: 14px; right: 16px; z-index: 31; display: flex; align-items: center; gap: 8px;
     font-size: 12px; color: var(--c-text-2); }
   #licence:empty { display: none; }
+  #licence .plan { color: var(--c-text); }
   .btn { border: none; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; font-weight: 500; }
   .btn.primary { background: var(--c-btn); color: var(--c-btn-text); }
   .btn.secondary { background: var(--c-btn-2); color: var(--c-text); }
@@ -158,39 +159,57 @@ function op(cmd) {
   }
 }
 
-// ── The licence ─────────────────────────────────────────────────────────────
-// The mod tells the page the licence's state in words (GET /api/licence-state,
-// then the "licence" event); Unlock, Cancel and Copy licence key go back to
-// it (POST /api/licence), and the buying and checking stay in the mod.
+// ── The account ─────────────────────────────────────────────────────────────
+// The mod tells the page the Glyphh account's state in words (GET
+// /api/licence-state, then the "licence" event): signed out, the plan and its
+// limits, or why Workspaces is closed. Sign in, Cancel, Upgrade and Manage
+// billing go back to it (POST /api/licence); the sign-in, the licence and
+// billing stay in the mod. The token never reaches the page.
 let licence = null
 const licenceAsk = action => api("/api/licence", { action }).catch(() => {})
 const button = (label, cls, onclick) => Object.assign(document.createElement("button"), { type: "button", className: `btn ${cls}`, textContent: label, onclick })
 const text = (tag, cls, content) => Object.assign(document.createElement(tag), { className: cls, textContent: content })
 
-/** The licence line at the top right: the trial's days and Unlock, or the wait and Cancel. */
+/** While signing in: the code to check and Cancel. */
+const signingIn = s => [text("span", "", `Check the code ${s.signIn.userCode} at ${s.signIn.uri}`), button("Cancel", "secondary", () => licenceAsk("cancel"))]
+
+/** The account's line at the top right: the plan with Upgrade and Manage
+ *  billing; the wait for checkout; or Sign in. */
 function drawLicenceLine() {
   const box = document.getElementById("licence")
   box.replaceChildren()
-  if (!licence || licence.kind !== "trial") return
-  if (licence.isWaiting) box.append(text("span", "", licence.note || "Finish checkout in your browser…"), button("Cancel", "secondary", () => licenceAsk("cancel")))
-  else box.append(text("span", "", licence.trial), button(`Unlock — ${licence.price}`, "primary", () => licenceAsk("buy")))
+  if (!licence || licence.gate) return
+  if (licence.signIn) return box.append(...signingIn(licence))
+  if (licence.note) box.append(text("span", "", licence.note))
+  if (licence.kind === "expired") return box.append(text("span", "", "Your Glyphh licence has expired"), button("Sign in again", "primary", () => licenceAsk("signin")))
+  box.append(text("span", "plan", `${licence.plan} plan`))
+  if (licence.isUpgrading) return box.append(button("Cancel", "secondary", () => licenceAsk("cancel")))
+  box.append(button("Upgrade", "primary", () => licenceAsk("upgrade")), button("Manage billing", "secondary", () => licenceAsk("billing")))
 }
 
-/** After the trial without a licence: what Workspaces does, and Unlock. */
+/** Signed out, or Workspaces not in the plan: what it does, and the way in. */
 function drawLocked() {
   const locked = document.getElementById("locked")
-  const isLocked = licence?.kind === "expired"
+  const isLocked = Boolean(licence?.gate)
   locked.classList.toggle("hidden", !isLocked)
   if (!isLocked) return locked.replaceChildren()
   window.WORKSPACES_EDITOR?.hide()
   const card = Object.assign(document.createElement("div"), { className: "locked-box" })
   card.append(text("h1", "", licence.product), ...licence.about.map(line => text("p", "", line)))
-  card.append(text("p", "ended", `The ${licence.trialDays}-day trial has ended. Unlock ${licence.product} for ${licence.price}, once.`))
   const row = Object.assign(document.createElement("div"), { className: "row" })
-  row.append(licence.isWaiting ? button("Cancel", "secondary", () => licenceAsk("cancel")) : button(`Unlock — ${licence.price}`, "primary", () => licenceAsk("buy")))
+  if (licence.signIn) row.append(...signingIn(licence))
+  else if (licence.kind === "not-in-plan") {
+    card.append(text("p", "ended", `Not in your ${licence.plan} plan.`))
+    row.append(licence.isUpgrading ? button("Cancel", "secondary", () => licenceAsk("cancel")) : button("Upgrade", "primary", () => licenceAsk("upgrade")))
+  } else if (licence.kind === "expired") {
+    card.append(text("p", "ended", "Your Glyphh licence has expired."))
+    row.append(button("Sign in again", "primary", () => licenceAsk("signin")))
+  } else {
+    card.append(text("p", "ended", "Sign in with a free Glyphh account. Your plan sets what Workspaces can do."))
+    row.append(button("Sign in to Glyphh", "primary", () => licenceAsk("signin")))
+  }
   card.append(row)
   if (licence.note) card.append(text("p", "small", licence.note))
-  card.append(text("p", "small", `Bought it on another machine? ${licence.command} key <licence>`))
   locked.replaceChildren(card)
 }
 
@@ -381,7 +400,7 @@ const es = new EventSource(`/events?t=${T}`)
 es.onmessage = ev => {
   const m = JSON.parse(ev.data)
   if (m.t === "state") return window.WORKSPACES_ECHO?.refreshState()
-  if (m.t === "show") return licence?.kind === "expired" ? undefined : showEditor(m.view)
+  if (m.t === "show") return licence?.gate ? undefined : showEditor(m.view)
   if (m.t === "licence") return setLicence(m.status)
   if (m.t === "library") {
     window.WORKSPACES_ECHO?.refreshLibrary()
@@ -446,7 +465,7 @@ addEventListener("load", async () => {
   await window.WORKSPACES_ECHO.start()
   readFrames()
   setLicence((await api("/api/licence-state").catch(() => ({}))).status ?? null)
-  if (START_VIEW && licence?.kind !== "expired") showEditor(START_VIEW)
+  if (START_VIEW && !licence?.gate) showEditor(START_VIEW)
 }, { once: true })
 
 // ── Measuring (WORKSPACES_DEBUG=1 only) ─────────────────────────────────────

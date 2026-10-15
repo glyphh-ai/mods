@@ -1,43 +1,79 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { fromB64url, verify } from '../hooks/licence/verify.ts'
-import { SITE_SIGNED_OTHER_MOD, b64url, payload, sign, testPublicKey } from './fakes.ts'
+import { parseLexical } from '../hooks/licence/canonical.ts'
+import { PUBLIC_KEY } from '../hooks/licence/server.ts'
+import { getPublicKeyAsync, signAsync } from '../hooks/licence/vendor/ed25519.ts'
+import { fromBase64, payloadOf, verifyLicence, verifyText } from '../hooks/licence/verify.ts'
+import { INSTALL, OTHER_INSTALL, PRO, PYTHON } from './licences.ts'
 
-describe('licence verify', () => {
-  test('a licence signed for this mod checks out', async () => {
-    const licence = await sign(payload())
-    expect((await verify(licence, 'drips', await testPublicKey()))?.session).toBe('cs_test_1')
-    expect(await verify(`  ${licence}\n`, 'drips', await testPublicKey())).not.toBeNull()
+const SEED = new Uint8Array(32).map((_, i) => i + 7)
+const b64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes))
+const b64url = (bytes: Uint8Array) => b64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+
+/** A licence signed by the test's own key, over `canonical`, around `payload`. */
+async function signed(payload: unknown, canonicalText = JSON.stringify(payload), encode = b64) {
+  const sig = await signAsync(new TextEncoder().encode(canonicalText), SEED)
+  return JSON.stringify({ payload, signature: encode(sig) })
+}
+
+const payload = { install_id: INSTALL, user_id: 'u', org_id: 'o', plan: 'Pro', mods: {}, expires_at: '2027-01-01T00:00:00Z' }
+
+describe("the plan's licence, checked offline", () => {
+  test("the server's licence checks out with the embedded key, for this install", async () => {
+    const r = await verifyText(PRO, INSTALL)
+    expect(r).toMatchObject({ payload: { plan: 'Pro', install_id: INSTALL, mods: { workspaces: { limits: { stream: 1, workspaces: null } } } } })
   })
 
-  test('a licence for another mod does not', async () => {
-    expect(await verify(await sign(payload('unlock-test')), 'drips', await testPublicKey())).toBeNull()
+  test("the Python fixture (non-ASCII, floats, a big int) checks out: the signed bytes are Python's", async () => {
+    expect('payload' in (await verifyText(PYTHON, INSTALL))).toBe(true)
   })
 
-  test("the site's key signs: its licence for another mod holds for that mod only", async () => {
-    expect((await verify(SITE_SIGNED_OTHER_MOD, 'unlock-test'))?.mod).toBe('unlock-test')
-    expect(await verify(SITE_SIGNED_OTHER_MOD, 'drips')).toBeNull()
+  test('a licence for another install is not used', async () => {
+    expect(await verifyText(OTHER_INSTALL, INSTALL)).toEqual({ error: 'install' })
   })
 
-  test('a tampered payload or a licence signed by another key does not', async () => {
-    const [body, sig] = (await sign(payload())).split('.')
-    const forged = b64url(new TextEncoder().encode(JSON.stringify({ ...payload(), install: 'someone-else' })))
-    expect(await verify(`${forged}.${sig}`, 'drips', await testPublicKey())).toBeNull()
-    expect(await verify(`${body}.${sig}`, 'drips')).toBeNull()
+  test('a changed payload, a changed signature, or another key fails the signature', async () => {
+    expect(await verifyText(PRO.replace('"plan":"Pro"', '"plan":"Max"'), INSTALL)).toEqual({ error: 'signature' })
+    expect(await verifyText(PRO.replace('"stream":1', '"stream":1.0'), INSTALL)).toEqual({ error: 'signature' })
+    const sig = /"signature":"([^"]+)"/.exec(PRO)![1]!
+    const flipped = sig.startsWith('A') ? `B${sig.slice(1)}` : `A${sig.slice(1)}`
+    expect(await verifyText(PRO.replace(sig, flipped), INSTALL)).toEqual({ error: 'signature' })
+    expect(await verifyText(PRO.replace(sig, 'not base64!'), INSTALL)).toEqual({ error: 'signature' })
+    expect(await verifyText(await signed(payload), INSTALL)).toEqual({ error: 'signature' })
   })
 
-  test('junk does not', async () => {
-    const key = await testPublicKey()
-    expect(await verify('not a licence', 'drips', key)).toBeNull()
-    expect(await verify('a.b.c', 'drips', key)).toBeNull()
-    expect(await verify('***.***', 'drips', key)).toBeNull()
-    expect(await verify(await sign({ ...payload(), v: 2 }), 'drips', key)).toBeNull()
-    expect(await verify(await sign('just text'), 'drips', key)).toBeNull()
+  test('the key and signature read as standard base64 (the server) or base64url (the embedded key), padded or not', async () => {
+    const key = await getPublicKeyAsync(SEED)
+    for (const enc of [b64, b64url]) {
+      const text = await signed(payload, JSON.stringify(payload, Object.keys(payload).sort()), enc)
+      for (const keyText of [b64(key), b64url(key)]) expect(await verifyLicence(parseLexical(text), INSTALL, keyText)).toMatchObject({ payload: { plan: 'Pro' } })
+    }
+    expect(fromBase64(PUBLIC_KEY)).toHaveLength(32)
+    expect(fromBase64(b64(fromBase64(PUBLIC_KEY)))).toEqual(fromBase64(PUBLIC_KEY))
+    expect(() => fromBase64('a')).toThrow()
+    expect(() => fromBase64('ab$c')).toThrow()
   })
 
-  test('base64url decodes, padded or not', () => {
-    expect(Array.from(fromB64url('AQID'))).toEqual([1, 2, 3])
-    expect(Array.from(fromB64url('-_8='))).toEqual([251, 255])
-    expect(() => fromB64url('a+b')).toThrow('not base64url')
+  test('not JSON, or not the shape, is malformed', async () => {
+    expect(await verifyText('nope', INSTALL)).toEqual({ error: 'malformed' })
+    expect(await verifyText('{"payload":{}}', INSTALL)).toEqual({ error: 'malformed' })
+    expect(await verifyText(JSON.stringify({ payload, signature: 5 }), INSTALL)).toEqual({ error: 'malformed' })
+  })
+
+  test("the payload's shape: mods a map of limits (the server's list of slugs is refused), dates that parse", () => {
+    expect(payloadOf(payload)).toEqual(payload)
+    expect(payloadOf({ ...payload, mods: { workspaces: { limits: { a: 1, b: null } }, drips: {} } })).not.toBeNull()
+    for (const bad of [
+      null,
+      [],
+      { ...payload, mods: ['workspaces'] },
+      { ...payload, mods: null },
+      { ...payload, mods: { workspaces: null } },
+      { ...payload, mods: { workspaces: { limits: { a: 'x' } } } },
+      { ...payload, mods: { workspaces: { limits: [1] } } },
+      { ...payload, plan: 1 },
+      { ...payload, expires_at: 'soon' },
+      { ...payload, limits: 3 },
+    ]) expect(payloadOf(bad)).toBeNull()
   })
 })

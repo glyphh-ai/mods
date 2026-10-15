@@ -1,13 +1,15 @@
 import type { On } from 'claude-code'
 import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
 
-import { DAY_MS } from '../hooks/licence/access.ts'
 import { BUILTIN_EFFECT_LIST } from '../hooks/drips/effects.ts'
 import { PERSISTENT_CAP_MS, PREVIEW_MAX_MS } from '../hooks/drips/manager.ts'
 import { NODE_MISSING } from '../hooks/drips/node.ts'
 import { T0, callTool, endTurn, runCommand, startSession, world, type WorldOptions } from './engine.ts'
 
-const ENDED = 'The Drips trial has ended. Unlock it for $5 in /drips.'
+const SIGNED_OUT = 'Sign in to Glyphh to use Drips: /drips signin.'
+const NOT_IN_PLAN = 'Drips is not in your Free plan. Upgrade in /drips.'
+const EXPIRED = 'Your Glyphh licence has expired: /drips signin to sign in again.'
+const SAVES_FULL = 'Your Free plan allows 2 saved drips. Pro lifts it: Upgrade in /drips.'
 
 async function started($: Engine, on: On, store: Record<string, unknown> = {}, options: WorldOptions = {}) {
   mock.store(on, store)
@@ -104,7 +106,7 @@ describe('/drips, the page', () => {
     expect(await run('drips')).toBe('Drips page ✓')
     expect(await run('drips')).toBe('Drips page ✓')
     expect(mcp).toEqual(['Claude_Browser.preview_start', 'Claude_Browser.tabs_select'])
-    expect(await run('drips', 'nonsense')).toBe('Usage: /drips [key <licence>]')
+    expect(await run('drips', 'nonsense')).toBe('Usage: /drips [signin | signout]')
   })
 
   test("outside the desktop app it opens in the person's browser", async ($, on) => {
@@ -227,32 +229,114 @@ describe('the tools Claude calls', () => {
   })
 })
 
-describe('the licence', () => {
-  test('after the trial: plays and tools refuse; list, save, delete, stop and the page still work', async ($, on) => {
-    const { run } = await started($, on, { trialStartedAt: T0 - DAY_MS * 7 })
-    expect(await run('drip', 'confetti')).toBe(ENDED)
-    expect(await run('drip')).toBe(ENDED)
-    expect(await callTool($, 'mcp__drips__play_drip', { recipe: 'confetti' })).toEqual({ error: ENDED })
-    expect(await callTool($, 'mcp__drips__list_drips')).toEqual({ error: ENDED })
-    expect(await run('drip', 'save a stars')).toBe('saved drip "a" → stars')
+describe('the Glyphh plan', () => {
+  test('signed out: plays, tools and saves refuse; list, delete, stop and the page still work', async ($, on) => {
+    const { run } = await started($, on, { customs: { party: '3 hearts' } }, { account: 'signed-out' })
+    expect(await run('drip', 'confetti')).toBe(SIGNED_OUT)
+    expect(await run('drip')).toBe(SIGNED_OUT)
+    expect(await callTool($, 'mcp__drips__play_drip', { recipe: 'confetti' })).toEqual({ error: SIGNED_OUT })
+    expect(await callTool($, 'mcp__drips__list_drips')).toEqual({ error: SIGNED_OUT })
+    expect(await run('drip', 'save a stars')).toBe(SIGNED_OUT)
+    expect(await run('drip', 'list')).toContain('party')
+    expect(await run('drip', 'delete party')).toBe('deleted drip "party"')
     expect(await run('drip', 'stop')).toBe('stopped all persistent effects')
     expect(await run('drips')).toBe('Drips page ✓')
   })
 
-  test("after the trial a page's preview is refused with the reason", async ($, on) => {
-    const { run, clock, page, toasts } = await started($, on, { trialStartedAt: T0 - DAY_MS * 9 })
+  test("signed out, a page's preview is refused with the reason and the page shows Sign in", async ($, on) => {
+    const { run, clock, page, toasts } = await started($, on, {}, { account: 'signed-out' })
     await run('drips')
     page.say({ t: 'play', recipe: 'stars' })
     await clock.advance(1000)
     expect(page.played).toEqual([])
-    expect(toasts).toContain(ENDED)
-    expect(page.licence.at(-1)).toMatchObject({ kind: 'expired', product: 'Drips', command: '/drips' })
+    expect(toasts).toContain(SIGNED_OUT)
+    expect(page.licence.at(-1)).toMatchObject({ kind: 'signed-out', gate: SIGNED_OUT, plan: null, product: 'Drips', command: '/drips' })
   })
 
-  test('/drips key with junk does not unlock', async ($, on) => {
-    const { run } = await started($, on, { trialStartedAt: T0 - DAY_MS * 8 })
-    expect(await run('drips', 'key junk')).toBe('That licence key did not check out.')
-    expect(await run('drip', 'confetti')).toBe(ENDED)
+  test('a plan without Drips refuses with Upgrade; an expired licence asks to sign in again', async ($, on) => {
+    const none = await started($, on, {}, { account: 'none' })
+    expect(await none.run('drip', 'confetti')).toBe(NOT_IN_PLAN)
+    none.server.licence = (await import('./licences.ts')).PRO_EXPIRED
+    none.server.offline = true
+    await startSession($)
+    expect(await none.run('drip', 'confetti')).toBe(NOT_IN_PLAN) // the file still says Free without Drips
+  })
+
+  test('an expired Pro licence (offline) closes Drips until signed in again', async ($, on) => {
+    const { run, server } = await started($, on, {}, { account: 'pro-expired' })
+    expect(server.asked('/v1/license')).toHaveLength(1) // asked again at the start: the answer is still the expired one
+    expect(await run('drip', 'confetti')).toBe(EXPIRED)
+  })
+
+  test('an expired Free licence keeps Free: plays work, saves stop at 2', async ($, on) => {
+    const { run, clock } = await started($, on, { customs: { a: 'stars', b: 'hearts' } }, { account: 'free-expired' })
+    await until(clock, () => false)
+    expect(await run('drip', 'confetti')).toBe('drip: confetti')
+    expect(await run('drip', 'save c stars')).toBe(SAVES_FULL)
+  })
+
+  test('Free: two saved drips; a third is refused naming the limit and Pro; saving one again or a rename is fine', async ($, on) => {
+    const { run, clock } = await started($, on, {}, { account: 'free' })
+    await until(clock, () => false) // the plans arrive
+    expect(await run('drip', 'save a stars')).toBe('saved drip "a" → stars')
+    expect(await run('drip', 'save b hearts')).toBe('saved drip "b" → hearts')
+    expect(await run('drip', 'save c confetti')).toBe(SAVES_FULL)
+    expect(await run('drip', 'save a confetti')).toBe('saved drip "a" → confetti')
+    expect(((await callTool($, 'mcp__drips__list_drips')) as { custom: { name: string }[] }).custom.map(d => d.name)).toEqual(['a', 'b'])
+  })
+
+  test("Free: the page's save past the limit is refused with the line; a rename is not", async ($, on) => {
+    const { run, clock, page, toasts } = await started($, on, { customs: { a: 'stars', b: 'hearts' } }, { account: 'free' })
+    await until(clock, () => false)
+    await run('drips')
+    page.say({ t: 'save', name: 'c', recipe: 'confetti', original: null })
+    await clock.advance(1000)
+    expect(toasts).toContain(SAVES_FULL)
+    page.say({ t: 'save', name: 'z', recipe: 'confetti', original: 'b' })
+    await clock.advance(1000)
+    expect(page.library.at(-1)?.drips.map(d => d.name)).toEqual(['a', 'z'])
+    expect(page.licence.at(-1)).toMatchObject({ kind: 'active', plan: 'Free', limits: { custom_drips: 2, fullscreen: 0 }, refusals: { custom_drips: SAVES_FULL } })
+  })
+
+  test('Free with fullscreen set: effects play in Claude\'s window, said once', { options: { display: 'fullscreen' } }, async ($, on) => {
+    const { run, clock, overlays, page, toasts } = await started($, on, {}, { account: 'free' })
+    await until(clock, () => false)
+    await run('drip', 'confetti')
+    await until(clock, () => page.played.length > 0)
+    await run('drip', 'hearts')
+    await until(clock, () => page.played.length > 1)
+    expect(overlays).toEqual([])
+    expect(toasts.filter(t => t.startsWith('Fullscreen is not in your Free plan. Pro has it: Upgrade in /drips. Playing in Claude\'s window instead.'))).toHaveLength(1)
+  })
+
+  test("the page's Upgrade at a limit opens checkout for the plan that lifts it; Sign in starts the device flow", async ($, on) => {
+    const free = await started($, on, {}, { account: 'free' })
+    await until(free.clock, () => false)
+    await free.run('drips')
+    free.page.licenceAsks.push('upgrade:fullscreen')
+    await free.clock.advance(1000)
+    expect(free.server.asked('/v1/billing/checkout')[0]!.body).toEqual({ plan: 'Pro', seats: 1 })
+    expect(free.ran).toContainEqual(['open', 'https://checkout.stripe.com/c/pay/cs_test_1'])
+    expect(free.page.licence.at(-1)).toMatchObject({ isUpgrading: true })
+  })
+
+  test("signed out, the page's Sign in shows the code there", async ($, on) => {
+    const { run, clock, page, ran } = await started($, on, {}, { account: 'signed-out' })
+    await run('drips')
+    page.licenceAsks.push('signin')
+    await clock.advance(1000)
+    await clock.advance(1000)
+    expect(ran).toContainEqual(['open', 'http://localhost:8080/v1/device?code=BCDF-GHJK'])
+    expect(page.licence.at(-1)).toMatchObject({ kind: 'signed-out', signIn: { userCode: 'BCDF-GHJK' } })
+  })
+
+  test('/drips signin and signout; a usage line for extra words', async ($, on) => {
+    const { run, server, glyphh } = await started($, on, {}, { account: 'signed-out' })
+    expect(await run('drips', 'signin now')).toBe('Usage: /drips signin')
+    expect(await run('drips', 'signin')).toBe('Sign in to Glyphh: check the code BCDF-GHJK at http://localhost:8080/v1/device (opened in your browser).')
+    expect(server.asked('/v1/device/code')[0]!.body).toMatchObject({ surface: 'desktop', name: "Tim's MacBook Pro", mod_version: '1.2.3', machine_id: expect.stringMatching(/^[0-9a-f]{64}$/) })
+    expect(await run('drips', 'signout')).toBe('Not signed in to Glyphh.')
+    expect(glyphh.size).toBe(0)
   })
 })
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { buildRecipe, checkDrip, countText, dripEmojis, filterDrips, parseRecipe } from '../helper/builder.mjs'
+import { buildRecipe, checkDrip, countText, dripEmojis, filterDrips, parseRecipe, saveRefusal } from '../helper/builder.mjs'
 import { isAllowed, isLocal, openKeys, sameSecret } from '../helper/gate.mjs'
 import { CLOSE_SIGNAL, DRIP_Z, createRunner, makeFrame } from '../helper/runner.mjs'
 
@@ -147,5 +147,28 @@ describe('the page server lets in only its own page', () => {
     const k = keys.issue(0)
     expect(keys.consume(k, 10)).toBe(true)
     expect(keys.consume(k, 20)).toBe(false)
+  })
+})
+
+describe("the plan's limit on the page's saves", () => {
+  const LINE = 'Your Free plan allows 2 saved drips. Pro lifts it: Upgrade in /drips.'
+  const status = (limit: number | null, gate: string | null = null) => ({ gate, limits: { custom_drips: limit, fullscreen: 0 }, refusals: { custom_drips: LINE, fullscreen: null } })
+  const two = [{ name: 'a', recipe: 'stars' }, { name: 'b', recipe: 'hearts' }]
+
+  test('a new drip below the limit, or unlimited, saves; at the limit it is refused with the line', () => {
+    expect(saveRefusal(status(3), two, 'c', '')).toBeNull()
+    expect(saveRefusal(status(null), two, 'c', '')).toBeNull()
+    expect(saveRefusal(status(2), two, 'c', '')).toBe(LINE)
+    expect(saveRefusal({ gate: null, limits: { custom_drips: 2 }, refusals: {} }, two, 'c', '')).toBe("Your plan's limit is reached.")
+  })
+
+  test('saving one again, or renaming one, keeps the count', () => {
+    expect(saveRefusal(status(2), two, 'a', 'a')).toBeNull()
+    expect(saveRefusal(status(2), two, 'z', 'b')).toBeNull()
+  })
+
+  test('closed, the gate says why; before the plan is told, it waits', () => {
+    expect(saveRefusal(status(5, 'Sign in to Glyphh to use Drips: /drips signin.'), two, 'c', '')).toBe('Sign in to Glyphh to use Drips: /drips signin.')
+    expect(saveRefusal(null, two, 'c', '')).toBe('Your Glyphh plan is still being checked: try again in a moment.')
   })
 })

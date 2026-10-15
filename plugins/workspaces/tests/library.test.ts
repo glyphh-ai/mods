@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { checkFavorite, checkFavoriteDelete, checkWorkspace, checkWorkspaceDelete, pickedFolder, slugOf, urlOf, usedBy } from '../helper/library.mjs'
+import { checkFavorite, checkFavoriteDelete, checkWorkspace, checkWorkspaceDelete, overLimit, pickedFolder, slugOf, urlOf, usedBy } from '../helper/library.mjs'
 import type { LibWorkspace } from '../helper/library.mjs'
 
 const FAVS = [
@@ -124,5 +124,24 @@ describe('what the editor may save: favourites', () => {
     expect(urlOf(undefined)).toBeNull()
     expect(urlOf('https://')).toBeNull()
     expect(urlOf('a b')).toBeNull()
+  })
+})
+
+describe("the plan's limits on the editor's saves", () => {
+  const status = (limits: Record<string, number | null>, gate: string | null = null) => ({ gate, limits, refusals: { workspaces: 'Your Free plan allows 1 workspace. Pro lifts it: Upgrade in /workspaces.', favorites: null } })
+
+  test('below the limit, or unlimited, a new one may be saved', () => {
+    expect(overLimit(status({ workspaces: 2 }), 'workspaces', 1)).toBeNull()
+    expect(overLimit(status({ workspaces: null }), 'workspaces', 500)).toBeNull()
+  })
+
+  test("at the limit: refused with the mod's line and the limit, for Upgrade", () => {
+    expect(overLimit(status({ workspaces: 1 }), 'workspaces', 1)).toEqual({ error: 'Your Free plan allows 1 workspace. Pro lifts it: Upgrade in /workspaces.', limit: 'workspaces' })
+    expect(overLimit(status({}), 'favorites', 0)).toEqual({ error: "Your plan's limit is reached.", limit: 'favorites' })
+  })
+
+  test('closed, the gate says why; before the mod has told the plan, it waits', () => {
+    expect(overLimit(status({ workspaces: null }, 'Sign in to Glyphh to use Workspaces: /workspaces signin.'), 'workspaces', 0)).toEqual({ error: 'Sign in to Glyphh to use Workspaces: /workspaces signin.' })
+    expect(overLimit(null, 'workspaces', 0)).toEqual({ error: 'Your Glyphh plan is still being checked: try again in a moment.' })
   })
 })

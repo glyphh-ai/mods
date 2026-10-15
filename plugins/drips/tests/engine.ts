@@ -5,6 +5,7 @@ import type { CommandRunInput, On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
 import { done, mcpText } from './fakes.ts'
+import { accountProcess, fakeServer, seedAccount, SERVER, type Account } from './glyphh.ts'
 
 export const T0 = Date.parse('2026-10-15T09:00:00Z')
 export const HOME = '/home/t'
@@ -18,6 +19,8 @@ export type WorldOptions = {
   browserRefuses?: boolean
   /** The page, once opened, never connects. */
   pageNeverOpens?: boolean
+  /** The Glyphh account when the session starts: Pro unless a test says. */
+  account?: Account
 }
 
 /** One fullscreen overlay process: its request, and whether it was told to end. */
@@ -32,6 +35,12 @@ export function world(on: On, options: WorldOptions = {}) {
   const tools: string[] = []
   const files = new Set<string>()
   const overlays: FakeOverlay[] = []
+  // ~/.glyphh: the account's files, shared by every Glyphh mod.
+  const glyphh = new Map<string, string>()
+  const account = options.account ?? 'pro'
+  seedAccount(glyphh, account, T0)
+  const server = fakeServer(account)
+  const writes: { argv: string[]; stdin: string }[] = []
   const page = {
     alive: null as { port: string; token: string; version: string } | null,
     open: 0,
@@ -42,13 +51,23 @@ export function world(on: On, options: WorldOptions = {}) {
     library: [] as { drips: { name: string; recipe: string }[]; effects: string[]; display: string }[],
     licence: [] as Record<string, unknown>[],
     inbox: [] as object[],
+    /** The page's asks of the account (Sign in, Cancel, Upgrade, Manage billing). */
+    licenceAsks: [] as string[],
     /** The page asking the mod for something. */
     say: (msg: object) => void page.inbox.push(msg),
   }
   let nextPid = 100
 
   on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? HOME : undefined }))
-  on('fs.read', (_$, e) => ({ value: e.path.endsWith('overlay.swift') ? 'import AppKit' : `code of ${e.path}` }))
+  on('fs.read', (_$, e) => {
+    if (e.path.startsWith(`${HOME}/.glyphh/`)) {
+      const text = glyphh.get(e.path)
+      if (text === undefined) throw new Error(`ENOENT ${e.path}`)
+      return { value: text }
+    }
+    if (e.path.endsWith('/.claude-plugin/plugin.json')) return { value: '{"name":"drips","version":"1.2.3"}' }
+    return { value: e.path.endsWith('overlay.swift') ? 'import AppKit' : `code of ${e.path}` }
+  })
   on('fs.exists', (_$, e) => ({ value: files.has(e.path) }))
   on('session.surfaces', () => ({ value: (options.surfaces ?? ['desktop']) as never }))
   on('command.register', (_$, e) => {
@@ -62,6 +81,8 @@ export function world(on: On, options: WorldOptions = {}) {
   on('process.run', (_$, e) => {
     const argv = [...e.argv]
     ran.push(argv)
+    const mine = accountProcess(argv, e.init?.stdin, glyphh, writes)
+    if (mine) return { value: mine }
     const [cmd] = argv
     if (argv[1] === '--version') return { value: options.noNode ? done('', 127) : done('v22.1.0\n') }
     if (cmd === '/bin/zsh') return { value: done('', 1) }
@@ -99,6 +120,7 @@ export function world(on: On, options: WorldOptions = {}) {
     return { value: { code: 0, signal: null } }
   })
   on('http.fetch', (_$, e) => {
+    if (e.url.startsWith(`${SERVER}/`)) return { value: server.handle(e.url, e.init) }
     const url = new URL(e.url)
     const ok = (body: unknown) => ({ value: { ok: true, status: 200, headers: {}, text: JSON.stringify(body) } })
     const alive = page.alive
@@ -125,7 +147,7 @@ export function world(on: On, options: WorldOptions = {}) {
         page.stops++
         return ok({})
       case '/api/licence-inbox':
-        return ok({ actions: [] })
+        return ok({ actions: page.licenceAsks.splice(0) })
       case '/api/licence-state':
         page.licence.push(body.status)
         return ok({})
@@ -155,7 +177,7 @@ export function world(on: On, options: WorldOptions = {}) {
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: 'ok' } as never }))
-  return { ran, mcp, toasts, asked, commands, tools, files, overlays, page }
+  return { ran, mcp, toasts, asked, commands, tools, files, overlays, page, glyphh, server, writes }
 }
 
 export const startSession = ($: Engine) => $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })

@@ -1,6 +1,7 @@
 // A switch: the app's panes and folder, then the layout page: the layout
 // switched inside the page when it is open, else the page opened once in the
-// Browser pane. Works on a Switcher, closures over `$` that ./hooks.tsx hands it.
+// Browser pane. A plan without the live layout page (`stream` 0) switches
+// the app's panes only. Works on a Switcher, closures over `$` that ./hooks.tsx hands it.
 import type { Choices, Entry, Favorite, PageSettings } from '../../types'
 import { applyWorkspace, closeTab, openTab, type App, type Value } from './desktop.ts'
 import { layoutsFor, type EditorView, type Link } from './viewer.ts'
@@ -17,17 +18,23 @@ export type Switcher = {
   layoutTab: Value<string | null>
   /** What the layout page lacks on this Mac; null when it can run. */
   missing(): Promise<string | null>
+  /** Why the plan leaves out the live layout page (its `stream` limit); null when it has it. */
+  liveRefused(): Promise<string | null>
   /** The running helper, started when it is not. */
   link(): Promise<Link>
   /** The running helper, or null. */
   running(): Link | null
 }
 
-/** The layouts and the library they come from, sent to the helper, `name` on screen. */
+/** The layouts and the library they come from, sent to the helper, `name`
+ *  on screen. Without the live layout page in the plan, the layouts go
+ *  without their live pages (the editor still has them all). */
 export async function push(s: Switcher, link: Link, name: string): Promise<void> {
   const workspaces = await s.entries.get()
   const favorites = await s.favorites.get()
-  await link.setLayouts(layoutsFor(workspaces, favorites), name, { workspaces, favorites, choices: await s.choices.get() }, s.settings)
+  const live = (await s.liveRefused()) === null
+  const layouts = layoutsFor(workspaces, favorites).map(l => (live ? l : { ...l, cells: l.cells.filter(c => c.panel !== 'browser') }))
+  await link.setLayouts(layouts, name, { workspaces, favorites, choices: await s.choices.get() }, s.settings)
 }
 
 const short = (err: unknown) => String(err).replace(/^(Hooks)?Error: /, '').slice(0, 160)
@@ -70,8 +77,11 @@ export async function switchTo(s: Switcher, target: Entry): Promise<string> {
   }
   const panes = await applyWorkspace(s.app, target.file)
   let page = ''
-  if (target.file.cells.some(c => c.panel === 'browser')) page = await showLayout(s, name)
+  const hasLive = target.file.cells.some(c => c.panel === 'browser')
+  const refused = hasLive ? await s.liveRefused() : null
+  if (hasLive && !refused) page = await showLayout(s, name)
   else {
+    if (refused) page = refused
     const link = s.running()
     if (link) await push(s, link, name).catch(() => undefined)
   }

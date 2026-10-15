@@ -12,3 +12,5 @@ export function dripEmojis(recipe: string): string[]
 export function filterDrips(drips: Drip[], query: string): Drip[]
 export function countText(n: number): string
 export function checkDrip(fields: { name: string; effects: string[] }): { error: string; field: 'name' | null } | { name: string }
+export type PlanStatus = { gate: string | null; limits: Record<string, number | null>; refusals: Record<string, string | null> }
+export function saveRefusal(status: PlanStatus | null, drips: Drip[], name: string, editing: string | null): string | null

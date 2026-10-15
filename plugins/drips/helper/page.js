@@ -2,7 +2,7 @@
 // (the Glyphh app's Drips section), and the effects the mod plays over it
 // (./runner.mjs). Saving, deleting and playing are the mod's: the page asks
 // (POST /api/ask) and draws what the mod sends back (GET /api/library).
-import { buildRecipe, checkDrip, countText, dripEmojis, filterDrips, parseRecipe } from "./builder.mjs"
+import { buildRecipe, checkDrip, countText, dripEmojis, filterDrips, parseRecipe, saveRefusal } from "./builder.mjs"
 import { createRunner, makeFrame } from "./runner.mjs"
 
 const T = window.DRIPS_TOKEN
@@ -125,8 +125,10 @@ function addEffectRow(value = "") {
   drawPreview()
 }
 
-function showError(text) {
+/** The editor's error line; one at a plan's limit carries Upgrade. */
+function showError(text, limit = null) {
   $("error").textContent = text
+  if (limit) $("error").append(" ", button("Upgrade", "primary", () => licenceAsk(`upgrade:${limit}`)))
   $("error").classList.toggle("hidden", !text)
 }
 
@@ -164,6 +166,8 @@ function save() {
   const checked = checkDrip({ name: $("name").value, effects: f.effects })
   $("name").classList.toggle("invalid", "error" in checked && checked.field === "name")
   if ("error" in checked) return showError(checked.error)
+  const over = saveRefusal(licence, library.drips, checked.name, editing)
+  if (over) return showError(over, licence?.gate ? null : "custom_drips")
   ask({ t: "save", name: checked.name, recipe: buildRecipe(f), original: editing || null })
   closeEditor()
 }
@@ -199,34 +203,55 @@ $("mode").onchange = () => {
 }
 $("count-input").oninput = drawPreview
 
-// ── The licence ─────────────────────────────────────────────────────────────
-// The mod tells the page the licence's state in words; Unlock, Cancel and
-// Copy licence key go back to it, and the buying and checking stay in the mod.
+// ── The account ─────────────────────────────────────────────────────────────
+// The mod tells the page the Glyphh account's state in words: signed out, the
+// plan and its limits, or why Drips is closed. Sign in, Cancel, Upgrade and
+// Manage billing go back to it; the sign-in, the licence and billing stay in
+// the mod. The token never reaches the page.
 let licence = null
 const licenceAsk = action => api("/api/licence", { action }).catch(() => {})
 const button = (label, cls, onclick) => Object.assign(el("button", `btn ${cls}`, label), { type: "button", onclick })
 
+/** While signing in: the code to check and Cancel. */
+const signingIn = s => [el("span", "", `Check the code ${s.signIn.userCode} at ${s.signIn.uri}`), button("Cancel", "secondary", () => licenceAsk("cancel"))]
+
 function drawLicence() {
   const bar = $("licence")
   bar.replaceChildren()
-  if (licence?.kind === "trial") {
-    if (licence.isWaiting) bar.append(el("span", "", licence.note || "Finish checkout in your browser…"), button("Cancel", "secondary", () => licenceAsk("cancel")))
-    else bar.append(el("span", "", licence.trial), button(`Unlock — ${licence.price}`, "secondary", () => licenceAsk("buy")))
+  if (licence && !licence.gate) {
+    if (licence.signIn) bar.append(...signingIn(licence))
+    else {
+      if (licence.note) bar.append(el("span", "", licence.note))
+      if (licence.kind === "expired") bar.append(el("span", "", "Your Glyphh licence has expired"), button("Sign in again", "primary", () => licenceAsk("signin")))
+      else {
+        bar.append(el("span", "plan", `${licence.plan} plan`))
+        if (licence.isUpgrading) bar.append(button("Cancel", "secondary", () => licenceAsk("cancel")))
+        else bar.append(button("Upgrade", "secondary", () => licenceAsk("upgrade")), button("Manage billing", "secondary", () => licenceAsk("billing")))
+      }
+    }
   }
   const locked = $("locked")
-  const isLocked = licence?.kind === "expired"
+  const isLocked = Boolean(licence?.gate)
   locked.classList.toggle("hidden", !isLocked)
   $("app").classList.toggle("hidden", isLocked)
   if (!isLocked) return locked.replaceChildren()
   runner.stopAll()
   const card = el("div", "card")
   card.append(el("h1", "", licence.product), ...licence.about.map(line => el("p", "", line)))
-  card.append(el("p", "ended", `The ${licence.trialDays}-day trial has ended. Unlock ${licence.product} for ${licence.price}, once.`))
   const row = el("div", "row-buttons")
-  row.append(licence.isWaiting ? button("Cancel", "secondary", () => licenceAsk("cancel")) : button(`Unlock — ${licence.price}`, "primary", () => licenceAsk("buy")))
+  if (licence.signIn) row.append(...signingIn(licence))
+  else if (licence.kind === "not-in-plan") {
+    card.append(el("p", "ended", `Not in your ${licence.plan} plan.`))
+    row.append(licence.isUpgrading ? button("Cancel", "secondary", () => licenceAsk("cancel")) : button("Upgrade", "primary", () => licenceAsk("upgrade")))
+  } else if (licence.kind === "expired") {
+    card.append(el("p", "ended", "Your Glyphh licence has expired."))
+    row.append(button("Sign in again", "primary", () => licenceAsk("signin")))
+  } else {
+    card.append(el("p", "ended", "Sign in with a free Glyphh account. Your plan sets what Drips can do."))
+    row.append(button("Sign in to Glyphh", "primary", () => licenceAsk("signin")))
+  }
   card.append(row)
   if (licence.note) card.append(el("p", "small", licence.note))
-  card.append(el("p", "small", `Bought it on another machine? ${licence.command} key <licence>`))
   locked.replaceChildren(card)
 }
 

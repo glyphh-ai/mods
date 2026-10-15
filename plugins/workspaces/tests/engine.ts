@@ -6,6 +6,7 @@ import type { Engine } from 'claude-code/testing'
 
 import type { PageSettings } from '../types'
 import { done, mcpText } from './fakes.ts'
+import { accountProcess, fakeServer, seedAccount, SERVER, type Account } from './glyphh.ts'
 
 export const T0 = Date.parse('2026-10-14T09:00:00Z')
 export const DIR = '/home/t/.glyphh/workspaces'
@@ -32,6 +33,8 @@ export type WorldOptions = {
   noNode?: boolean
   /** The helper never comes up. */
   helperFails?: boolean
+  /** The Glyphh account when the session starts: Pro unless a test says. */
+  account?: Account
 }
 
 /** The layout page's helper as the mod sees it: what it was sent, and a way to make it speak. */
@@ -45,9 +48,9 @@ export type FakeHelper = {
   /** The running helper: where it listens, its token and version; null when it is not. */
   alive: { port: string; token: string; version: string } | null
   quits: number
-  /** The licence states the mod sent the page, oldest first. */
+  /** The account states the mod sent the page, oldest first. */
   licence: Record<string, unknown>[]
-  /** The page asking the licence for something (Unlock, Cancel, Copy). */
+  /** The page asking the account for something (Sign in, Cancel, Upgrade, Manage billing). */
   press(action: string): void
   /** Pages listening for updates: 0 until the page is open. */
   open: number
@@ -57,6 +60,10 @@ export type FakeHelper = {
 export function world(on: On, options: WorldOptions = {}) {
   const home = options.home === undefined ? '/home/t' : options.home
   const files = new Map<string, string>(Object.entries(options.seed ?? {}))
+  const account = options.account ?? 'pro'
+  seedAccount(files, account, T0)
+  const server = fakeServer(account)
+  const writes: { argv: string[]; stdin: string }[] = []
   const open = new Set<string>()
   const ran: string[][] = []
   const mcp: string[] = []
@@ -68,9 +75,6 @@ export function world(on: On, options: WorldOptions = {}) {
     find: '',
     copied: [] as string[],
     openExit: 0,
-    /** What the site asked about a purchase, and its answers in turn. */
-    siteAsked: [] as string[],
-    siteAnswers: [] as string[],
   }
   const inbox: object[] = []
   const licenceAsks: string[] = []
@@ -116,6 +120,8 @@ export function world(on: On, options: WorldOptions = {}) {
   on('process.run', (_$, e) => {
     const argv = [...e.argv]
     ran.push(argv)
+    const mine = accountProcess(argv, e.init?.stdin, files, writes)
+    if (mine) return { value: mine }
     if (argv[1] === '--version') return { value: options.noNode ? done('', 127) : done('v22.1.0\n') }
     if (argv[0] === '/bin/zsh') return { value: done('', 1) }
     if (argv[0] === 'open') return { value: done('', w.openExit) }
@@ -152,10 +158,7 @@ export function world(on: On, options: WorldOptions = {}) {
   on('http.fetch', (_$, e) => {
     const url = new URL(e.url)
     const ok = (body: unknown) => ({ value: { ok: true, status: 200, headers: {}, text: JSON.stringify(body) } })
-    if (url.host === 'localhost:3000') {
-      w.siteAsked.push(e.url)
-      return { value: { ok: true, status: 200, headers: {}, text: w.siteAnswers.shift() ?? '{"paid":false}' } }
-    }
+    if (e.url.startsWith(`${SERVER}/`)) return { value: server.handle(e.url, e.init) }
     const alive = helper.alive
     if (!alive || url.port !== alive.port) throw new Error('connection refused')
     if (e.init?.headers?.['X-Token'] !== alive.token) return { value: { ok: false, status: 403, headers: {}, text: 'forbidden' } }
@@ -212,7 +215,7 @@ export function world(on: On, options: WorldOptions = {}) {
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   for (const [command, text] of Object.entries(options.taken ?? {})) on('command.run', { command }, () => ({ text }))
   const json = (slug: string) => JSON.parse(files.get(`${DIR}/${slug}.json`)!)
-  return { files, open, ran, mcp, toasts, asked, commands, slash, w, helper, json }
+  return { files, open, ran, mcp, toasts, asked, commands, slash, w, helper, json, server, writes }
 }
 
 /** The session starting on the desktop, as the engine starts it. */

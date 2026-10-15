@@ -72,3 +72,17 @@ export function checkDrip({ name, effects }) {
   if (!kept) return { error: "Please fill in all required fields.", field: "name" }
   return { name: kept }
 }
+
+/** Whether saving `name` (the editor open on `editing`, "" for a new drip)
+ *  passes the plan's custom_drips limit, as the mod tells the page ({ gate,
+ *  limits, refusals }): a drip saved again, or renamed, keeps the count. The
+ *  line it is refused with, or null. The mod checks again on its side. */
+export function saveRefusal(status, drips, name, editing) {
+  const kept = new Set(drips.map(d => d.name))
+  if (kept.has(name) || (editing && kept.has(editing))) return null
+  if (!status) return "Your Glyphh plan is still being checked: try again in a moment."
+  if (status.gate) return status.gate
+  const limit = status.limits?.custom_drips
+  if (limit === null || (typeof limit === "number" && kept.size < limit)) return null
+  return status.refusals?.custom_drips ?? "Your plan's limit is reached."
+}

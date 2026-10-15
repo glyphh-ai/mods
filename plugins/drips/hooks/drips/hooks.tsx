@@ -8,7 +8,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, Timer } from 'claude-code'
 
 import type { HelperInfo } from '../../types'
-import { INITIAL, refusal } from '../licence/access.ts'
+import { access, gate, INITIAL, refusal } from '../licence/access.ts'
 import { BUILTIN_EFFECT_LIST, BUILTIN_EFFECTS } from './effects.ts'
 import { createFun } from './fun.ts'
 import { eventsOf, fullscreenHost, prepareOverlay, type FullscreenDeps, type Prepared } from './fullscreen.ts'
@@ -19,7 +19,7 @@ import { findNode, NODE_MISSING } from './node.ts'
 import { settingsOf, type Settings } from './settings.ts'
 import { showPage, shownText, windowHost, type PageDeps, type WindowHost } from './window.ts'
 
-const licence = atom({ plugin: 'drips', key: 'licence' } as const, INITIAL)
+const account = atom({ plugin: 'drips', key: 'account' } as const, INITIAL)
 const helperInfo = atom({ plugin: 'drips', key: 'helper' } as const, null as HelperInfo | null)
 const pageTab = atom({ plugin: 'drips', key: 'pageTab' } as const, null as string | null)
 const nodePath = atom({ plugin: 'drips', key: 'node' } as const, null as string | null)
@@ -35,8 +35,9 @@ let mod: Mod | null = null
 let helper: Link | null = null
 let collecting: Timer | null = null
 let starting: Promise<Link> | null = null
-/** The fullscreen fallback is said once per load. */
+/** The fullscreen fallback, and fullscreen left out of the plan, are each said once per load. */
 let isFallbackSaid = false
+let isPlanFallbackSaid = false
 
 const short = (err: unknown) => String(err instanceof Error ? err.message : err).replace(/^(Hooks)?Error: /, '').slice(0, 300)
 
@@ -100,7 +101,11 @@ const modOf = ($: EngineInterface) => (mod ??= build($))
 /** Where effects play now: the setting's host; Claude's window for a preview,
  *  and where the fullscreen overlay cannot run here (said once). */
 async function hostOf($: EngineInterface, m: Mod, preview = false): Promise<Host> {
-  if (!preview && settings.display === 'fullscreen') {
+  const planRefuses = !preview && settings.display === 'fullscreen' ? refusal(await read($, account), await $.clock.now(), 'fullscreen') : null
+  if (planRefuses) {
+    if (!isPlanFallbackSaid) $.ui.toast(`${planRefuses} Playing in Claude's window instead.`)
+    isPlanFallbackSaid = true
+  } else if (!preview && settings.display === 'fullscreen') {
     m.fullscreen ??= prepareOverlay(fullscreenDeps($))
     const prepared = await m.fullscreen
     if ('binary' in prepared) return fullscreenHost(fullscreenDeps($), prepared.binary)
@@ -111,9 +116,18 @@ async function hostOf($: EngineInterface, m: Mod, preview = false): Promise<Host
   return m.window
 }
 
-/** Why effects may not play now (the trial is over), or null. */
+/** Why effects may not play now (signed out, not in the plan), or null. */
 async function refused($: EngineInterface): Promise<string | null> {
-  return refusal(await read($, licence), await $.clock.now())
+  return gate(access(await read($, account), await $.clock.now()))
+}
+
+/** Why saving `name` would pass the plan's `custom_drips` limit (a new name
+ *  only: one saved again, or renamed, keeps the count), or null. */
+async function saveRefused($: EngineInterface, name: string, original?: string | null): Promise<string | null> {
+  const customs = await readCustoms(store($))
+  const id = dripId(name)
+  if (id in customs || (original && dripId(original) in customs)) return null
+  return refusal(await read($, account), await $.clock.now(), 'custom_drips', Object.keys(customs).length)
 }
 
 // ── The Drips page's helper ─────────────────────────────────────────────────
@@ -148,6 +162,8 @@ async function onPage($: EngineInterface, m: PageMessage): Promise<void> {
   }
   if (m.t === 'save') {
     if (!dripId(m.name) || customEffects(m.recipe).length === 0) return $.ui.toast('Drips: a drip needs a name and at least one effect.')
+    const over = await saveRefused($, m.name, m.original)
+    if (over) return $.ui.toast(over)
     if (m.original && dripId(m.original) !== dripId(m.name)) await deleteCustom(store($), m.original)
     await saveCustom(store($), m.name, m.recipe)
   } else await deleteCustom(store($), m.name)
@@ -239,7 +255,7 @@ async function registerAll($: EngineInterface): Promise<void> {
     argumentHint: '<recipe> | list | save <name> <recipe> | delete <name> | stop',
     immediate: true,
   })
-  await $.command.register({ name: 'drips', description: 'Open the Drips page: your saved drips, and an editor; key <licence> unlocks Drips', argumentHint: '[key <licence>]' })
+  await $.command.register({ name: 'drips', description: 'Open the Drips page: your saved drips, and an editor; signin or signout of Glyphh', argumentHint: '[signin | signout]' })
   await $.tool.register({
     name: 'play_drip',
     description:
@@ -261,6 +277,7 @@ export function drips(on: On, options: PluginOptions) {
   mod = null
   helper = null
   isFallbackSaid = false
+  isPlanFallbackSaid = false
 
   on('session.start', async ($, e, next) => {
     mod = build($)
@@ -279,6 +296,11 @@ export function drips(on: On, options: PluginOptions) {
       const no = await refused($)
       if (no) return { text: no }
     }
+    if (sub === 'save') {
+      const name = line.split(/\s+/)[1]
+      const over = name ? await saveRefused($, name) : null
+      if (over) return { text: over }
+    }
     try {
       const m = modOf($)
       const text = await m.manager.execute(() => hostOf($, m), line)
@@ -291,7 +313,7 @@ export function drips(on: On, options: PluginOptions) {
   })
 
   on('command.run', { command: 'drips' }, async ($, e) => {
-    if (e.args.trim()) return { text: 'Usage: /drips [key <licence>]' }
+    if (e.args.trim()) return { text: 'Usage: /drips [signin | signout]' }
     if (!(await read($, nodePath))) return { text: NODE_MISSING }
     try {
       return { text: shownText(await showPage(pageDeps($))) }

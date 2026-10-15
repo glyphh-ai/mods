@@ -13,9 +13,11 @@
 // /api/inbox): the shapes the person drags ({ t: "layout", name, colWidths,
 // rowHeights }), the layout they pick in the page ({ t: "active", name }), and
 // { t: "library", renamed? } once the page's workspace editor has written
-// ~/.glyphh (WORKSPACES_LIBRARY), checked by ./library.mjs. The mod's licence
-// module posts the licence's state in words (POST /api/licence-state) and
-// collects the page's Unlock, Cancel and Copy (GET /api/licence-inbox). Started by hand,
+// ~/.glyphh (WORKSPACES_LIBRARY), checked by ./library.mjs. The mod's account
+// module posts the Glyphh account's state in words (POST /api/licence-state:
+// the plan, its limits, never the token), which a new workspace or favourite
+// is held to, and collects the page's Sign in, Cancel, Upgrade and Manage
+// billing (GET /api/licence-inbox). Started by hand,
 // without a token, it picks its own and prints { t: "ready", port, token } and
 // each message as a line.
 //
@@ -44,7 +46,7 @@ import { startChrome } from "./chrome.mjs"
 import { isAllowed, isLocal, openKeys } from "./gate.mjs"
 import { parseEcho } from "./echo-model.mjs"
 import { faviconCandidates, faviconTarget, isIcon } from "./favicon.mjs"
-import { checkFavorite, checkFavoriteDelete, checkWorkspace, checkWorkspaceDelete, pickedFolder } from "./library.mjs"
+import { checkFavorite, checkFavoriteDelete, checkWorkspace, checkWorkspaceDelete, overLimit, pickedFolder } from "./library.mjs"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -83,11 +85,11 @@ let library = { workspaces: [], favorites: [], choices: { models: [], efforts: [
 let picking = false
 let settings = {}
 const favicons = new Map() // site origin → { type, bytes } | null, for this helper's life
-// The licence as the mod tells it (its state in words, never the licence),
+// The account as the mod tells it (its state in words, never the token),
 // and what the page asked of it, for the mod to collect.
 let licenceState = null
 const licenceAsks = []
-const LICENCE_ACTIONS = ["buy", "cancel", "copy"]
+const isLicenceAction = a => ["signin", "cancel", "upgrade", "billing"].includes(a) || /^upgrade:[a-z_]{1,40}$/.test(String(a))
 const LIBRARY = process.env.WORKSPACES_LIBRARY || ""
 
 /** A file written whole or not at all: to a temporary name, then moved. */
@@ -286,7 +288,7 @@ const server = createServer(async (req, res) => {
       if (!LIBRARY) return json(res, { error: "There is nowhere to save: HOME is not set." }, 500)
       const body = await readBody(req)
       const done = saveLibrary(url.pathname, body)
-      if (done.error) return json(res, { error: done.error }, 400)
+      if (done.error) return json(res, { error: done.error, ...(done.limit ? { limit: done.limit } : {}) }, 400)
       emit({ t: "library" })
       json(res, done)
     } else if (route === "GET /api/favicon") {
@@ -314,7 +316,7 @@ const server = createServer(async (req, res) => {
       json(res, { status: licenceState })
     } else if (route === "POST /api/licence") {
       const body = await readBody(req)
-      if (!LICENCE_ACTIONS.includes(body?.action)) return json(res, { error: "unknown action" }, 400)
+      if (!isLicenceAction(body?.action)) return json(res, { error: "unknown action" }, 400)
       licenceAsks.push(body.action)
       json(res, {})
     } else if (route === "GET /api/licence-inbox") {
@@ -376,6 +378,9 @@ const server = createServer(async (req, res) => {
 function saveLibrary(path, body) {
   const { workspaces, favorites } = library
   if (path === "/api/workspace") {
+    const isNew = typeof body?.original !== "string"
+    const over = isNew ? overLimit(licenceState, "workspaces", workspaces.length) : null
+    if (over) return over
     const ok = checkWorkspace(body, library)
     if (ok.error) return ok
     writeAtomic(workspacePath(ok.slug), ok.file)
@@ -395,6 +400,8 @@ function saveLibrary(path, body) {
     say({ t: "library" })
     return { ok: true }
   }
+  const over = path === "/api/favorite" && typeof body?.id !== "string" ? overLimit(licenceState, "favorites", favorites.length) : null
+  if (over) return over
   const ok = path === "/api/favorite" ? checkFavorite(body, favorites) : checkFavoriteDelete(String(body?.id ?? ""), favorites, workspaces)
   if (ok.error) return ok
   writeAtomic(join(LIBRARY, "favorites.json"), { favorites: ok.favorites })

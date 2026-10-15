@@ -159,3 +159,15 @@ export function pickedFolder({ code, stdout }) {
   if (code !== 0 || !path.startsWith("/")) return null
   return path.length > 1 ? path.replace(/\/+$/, "") : path
 }
+
+/** Whether one more workspace or favourite (`count` kept now) is past the
+ *  plan's limit, as the mod tells the page ({ gate, limits, refusals }): the
+ *  line it is refused with and the limit, or null when the plan allows it. */
+export function overLimit(status, name, count) {
+  if (!status) return { error: "Your Glyphh plan is still being checked: try again in a moment." }
+  if (status.gate) return { error: status.gate }
+  const limit = status.limits?.[name]
+  if (limit === null) return null
+  if (typeof limit === "number" && count < limit) return null
+  return { error: status.refusals?.[name] ?? "Your plan's limit is reached.", limit: name }
+}

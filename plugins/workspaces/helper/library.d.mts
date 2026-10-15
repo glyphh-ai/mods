@@ -12,3 +12,5 @@ export function checkFavorite(input: unknown, favorites: LibFavorite[]): { id: s
 export function usedBy(id: string, workspaces: LibWorkspace[]): string[]
 export function checkFavoriteDelete(id: string, favorites: LibFavorite[], workspaces: LibWorkspace[]): { favorites: LibFavorite[]; error?: undefined } | { error: string }
 export function pickedFolder(answer: { code: number | null; stdout: string }): string | null
+export type PlanStatus = { gate: string | null; limits: Record<string, number | null>; refusals: Record<string, string | null> }
+export function overLimit(status: PlanStatus | null, name: string, count: number): { error: string; limit?: string } | null
