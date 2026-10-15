@@ -103,7 +103,7 @@ export function linkTo(fetch: Fetch, port: number, token: string): Link {
 }
 
 /** The helper's files: a change to any of them makes a new helper. */
-export const HELPER_FILES = ['chrome.mjs', 'echo-model.mjs', 'echo.css', 'echo.js', 'favicon.mjs', 'gate.mjs', 'grid.mjs', 'input.mjs', 'library.mjs', 'popups.mjs', 'viewer.mjs', 'viewer.html', 'workspaces.js', 'workspaces.css', 'debug/probe.html']
+export const HELPER_FILES = ['chrome.mjs', 'echo-model.mjs', 'echo.css', 'echo.js', 'favicon.mjs', 'gate.mjs', 'grid.mjs', 'input.mjs', 'library.mjs', 'popups.mjs', 'viewer.mjs', 'viewer.html', 'workspaces.js', 'workspaces.css']
 
 /** A version for the helper's code: a digest of its files' texts. */
 export async function versionOf(texts: string[]): Promise<string> {

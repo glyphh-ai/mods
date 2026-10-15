@@ -1,0 +1,8 @@
+{
+  "SITE": "https://glyphh.ai",
+  "PUBLIC_KEY": "TBD",
+  "plugins": {
+    "drips": { "PAYMENT_LINK": "TBD" },
+    "workspaces": { "PAYMENT_LINK": "TBD" }
+  }
+}
