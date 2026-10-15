@@ -1,0 +1,114 @@
+import { describe, expect, test } from 'claude-code/testing'
+
+import { LONG_TURN_MS, MATRIX_LINGER_MS, createFun } from '../hooks/drips/fun.ts'
+import { DEFAULT_SETTINGS, settingsOf, type Settings } from '../hooks/drips/settings.ts'
+import { flush } from './fakes.ts'
+
+function world(settings: Partial<Settings>, opts: { allowed?: boolean; theirs?: boolean } = {}) {
+  const log: string[] = []
+  const timers: { ms: number; fn: () => void; cancelled: boolean }[] = []
+  let running = opts.theirs ?? false
+  const fun = createFun(
+    {
+      isAllowed: async () => opts.allowed ?? true,
+      play: async recipe => void log.push(`play ${recipe}`),
+      ensure: async effect => {
+        if (running) return false
+        running = true
+        log.push(`start ${effect}`)
+        return true
+      },
+      release: async effect => {
+        running = false
+        log.push(`stop ${effect}`)
+      },
+      after: (ms, fn) => {
+        const t = { ms, fn, cancelled: false }
+        timers.push(t)
+        return { cancel: () => void (t.cancelled = true) }
+      },
+      report: err => void log.push(`error ${String(err)}`),
+    },
+    { ...DEFAULT_SETTINGS, ...settings },
+  )
+  const fire = async () => {
+    for (const t of timers.splice(0)) if (!t.cancelled) t.fn()
+    await flush()
+  }
+  return { fun, log, timers, fire }
+}
+
+describe('matrix while tools run', () => {
+  test('on with the first tool, off a moment after the last; back-to-back tools keep it on', async () => {
+    const { fun, log, timers, fire } = world({ matrixWhileTools: true })
+    await fun.toolStart()
+    await fun.toolStart()
+    fun.toolEnd()
+    expect(timers).toHaveLength(0)
+    fun.toolEnd()
+    expect(timers[0]!.ms).toBe(MATRIX_LINGER_MS)
+    await fun.toolStart() // the next tool, inside the linger
+    expect(timers[0]!.cancelled).toBe(true)
+    fun.toolEnd()
+    await fire()
+    expect(log).toEqual(['start matrix', 'stop matrix'])
+  })
+
+  test('off when the turn ends; a matrix the person started is never ended', async () => {
+    const mine = world({ matrixWhileTools: true })
+    await mine.fun.toolStart()
+    await mine.fun.turnEnd({ durationMs: 1000, reason: 'answer', isMainLoop: true })
+    expect(mine.log).toEqual(['start matrix', 'stop matrix'])
+
+    const theirs = world({ matrixWhileTools: true }, { theirs: true })
+    await theirs.fun.toolStart()
+    theirs.fun.toolEnd()
+    await theirs.fire()
+    await theirs.fun.turnEnd({ durationMs: 1000, reason: 'answer', isMainLoop: true })
+    expect(theirs.log).toEqual([])
+  })
+
+  test('nothing when the toggle is off or the trial is over', async () => {
+    const off = world({})
+    await off.fun.toolStart()
+    off.fun.toolEnd()
+    expect(off.log).toEqual([])
+    expect(off.timers).toEqual([])
+    const ended = world({ matrixWhileTools: true }, { allowed: false })
+    await ended.fun.toolStart()
+    ended.fun.toolEnd()
+    await ended.fire()
+    expect(ended.log).toEqual([])
+  })
+})
+
+describe('confetti after a long turn', () => {
+  test('a main-loop answer that ran past two minutes; not a short one, an interrupted one or a subagent', async () => {
+    const { fun, log } = world({ confettiAfterLongTurn: true })
+    await fun.turnEnd({ durationMs: LONG_TURN_MS + 1, reason: 'answer', isMainLoop: true })
+    await fun.turnEnd({ durationMs: LONG_TURN_MS, reason: 'answer', isMainLoop: true })
+    await fun.turnEnd({ durationMs: LONG_TURN_MS * 2, reason: 'aborted', isMainLoop: true })
+    await fun.turnEnd({ durationMs: LONG_TURN_MS * 2, reason: 'answer', isMainLoop: false })
+    expect(log).toEqual(['play confetti'])
+  })
+
+  test('nothing when the toggle is off or the trial is over', async () => {
+    const off = world({})
+    await off.fun.turnEnd({ durationMs: LONG_TURN_MS * 2, reason: 'answer', isMainLoop: true })
+    const ended = world({ confettiAfterLongTurn: true }, { allowed: false })
+    await ended.fun.turnEnd({ durationMs: LONG_TURN_MS * 2, reason: 'answer', isMainLoop: true })
+    expect([...off.log, ...ended.log]).toEqual([])
+  })
+})
+
+describe('the /config rows', () => {
+  test('display defaults to Claude\'s window; the fun hooks are off unless set true', () => {
+    expect(settingsOf({})).toEqual(DEFAULT_SETTINGS)
+    expect(settingsOf({ display: 'fullscreen', confetti_after_long_turn: true, matrix_while_tools: true })).toEqual({
+      display: 'fullscreen',
+      confettiAfterLongTurn: true,
+      matrixWhileTools: true,
+    })
+    expect(settingsOf({ display: 'sideways', confetti_after_long_turn: 'yes' })).toEqual(DEFAULT_SETTINGS)
+  })
+})
