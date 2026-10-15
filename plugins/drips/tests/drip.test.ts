@@ -101,7 +101,7 @@ describe("/drip over Claude's window (the default)", () => {
     const { run, clock, toasts, overlays } = await started($, on, {}, { noSwift: true })
     expect(await run('drip', 'confetti')).toBe(`/drip: ${SWIFT_MISSING}`)
     expect(await run('drip', '-1 aurora')).toBe(`/drip: ${SWIFT_MISSING}`)
-    expect(await callTool($, 'mcp__drips__play_drip', { recipe: 'hearts' })).toEqual({ error: SWIFT_MISSING })
+    expect(await callTool($, 'mcp__drips__play_drip', { recipe: 'hearts' })).toBe(`Not played: ${SWIFT_MISSING}`)
     await clock.advance(5000)
     expect(toasts).toEqual([SWIFT_MISSING])
     expect(overlays).toEqual([])
@@ -260,21 +260,21 @@ describe('fullscreen', () => {
 describe('the tools Claude calls', () => {
   test('play_drip plays a recipe or stops; it does not save, delete or list', async ($, on) => {
     const { clock, overlays } = await started($, on)
-    expect(await callTool($, 'mcp__drips__play_drip', { recipe: 'fireworks' })).toEqual({ status: 'drip: fireworks' })
+    expect(await callTool($, 'mcp__drips__play_drip', { recipe: 'fireworks' })).toBe('drip: fireworks')
     await until(clock, () => overlays.length > 0)
     expect(overlays).toHaveLength(1)
-    expect(await callTool($, 'mcp__drips__play_drip', { recipe: 'stop' })).toEqual({ status: 'stopped all persistent effects' })
-    expect(await callTool($, 'mcp__drips__play_drip', { recipe: 'save x confetti' })).toEqual({ error: 'play_drip takes a recipe or "stop"; list_drips lists the effects.' })
+    expect(await callTool($, 'mcp__drips__play_drip', { recipe: 'stop' })).toBe('stopped all persistent effects')
+    expect(await callTool($, 'mcp__drips__play_drip', { recipe: 'save x confetti' })).toBe('play_drip takes a recipe or "stop"; list_drips lists the effects.')
   })
 
   test("play_drip's failure is its result", async ($, on) => {
     await started($, on, {}, { notMac: true })
-    expect(await callTool($, 'mcp__drips__play_drip', { recipe: '-1 aurora' })).toEqual({ error: MAC_ONLY })
+    expect(await callTool($, 'mcp__drips__play_drip', { recipe: '-1 aurora' })).toBe(`Not played: ${MAC_ONLY}`)
   })
 
   test("list_drips lists the effects and the person's drips", async ($, on) => {
     await started($, on, { customs: { party: '3 hearts' } })
-    expect(await callTool($, 'mcp__drips__list_drips')).toEqual({ effects: BUILTIN_EFFECT_LIST, custom: [{ name: 'party', recipe: '3 hearts' }], running: [] })
+    expect(await callTool($, 'mcp__drips__list_drips')).toBe(JSON.stringify({ effects: BUILTIN_EFFECT_LIST, custom: [{ name: 'party', recipe: '3 hearts' }], running: [] }))
   })
 })
 
@@ -283,8 +283,8 @@ describe('the Glyphh plan', () => {
     const { run } = await started($, on, { customs: { party: '3 hearts' } }, { account: 'signed-out' })
     expect(await run('drip', 'confetti')).toBe(SIGNED_OUT)
     expect(await run('drip')).toBe(SIGNED_OUT)
-    expect(await callTool($, 'mcp__drips__play_drip', { recipe: 'confetti' })).toEqual({ error: SIGNED_OUT })
-    expect(await callTool($, 'mcp__drips__list_drips')).toEqual({ error: SIGNED_OUT })
+    expect(await callTool($, 'mcp__drips__play_drip', { recipe: 'confetti' })).toBe(`Not played: ${SIGNED_OUT}`)
+    expect(await callTool($, 'mcp__drips__list_drips')).toBe(`Not played: ${SIGNED_OUT}`)
     expect(await run('drip', 'save a stars')).toBe(SIGNED_OUT)
     expect(await run('drip', 'list')).toContain('party')
     expect(await run('drip', 'delete party')).toBe('deleted drip "party"')
@@ -335,7 +335,7 @@ describe('the Glyphh plan', () => {
     expect(await run('drip', 'save b hearts')).toBe('saved drip "b" → hearts')
     expect(await run('drip', 'save c confetti')).toBe(SAVES_FULL)
     expect(await run('drip', 'save a confetti')).toBe('saved drip "a" → confetti')
-    expect(((await callTool($, 'mcp__drips__list_drips')) as { custom: { name: string }[] }).custom.map(d => d.name)).toEqual(['a', 'b'])
+    expect((JSON.parse((await callTool($, 'mcp__drips__list_drips')) as string) as { custom: { name: string }[] }).custom.map(d => d.name)).toEqual(['a', 'b'])
   })
 
   test("Free: the page's save past the limit is refused with the line; a rename is not", async ($, on) => {
