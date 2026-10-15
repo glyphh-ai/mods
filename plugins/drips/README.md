@@ -15,11 +15,12 @@ Drips works in Claude Code on a Mac.
 
 ## Requirements
 
-- **Node.js 18 or newer** (https://nodejs.org). It runs the small local
-  page that plays effects in Claude's window and holds the Drips editor.
-- For **fullscreen** effects: the **Xcode Command Line Tools**, which bring
-  Swift (`xcode-select --install`). Without them, Drips plays effects in
-  Claude's window and tells you so.
+- The **Xcode Command Line Tools**, which bring Swift
+  (`xcode-select --install`). Drips builds its small overlay program with
+  them, to play effects over Claude's window or the whole screen. Without
+  them, Drips plays effects in the Drips page and tells you so.
+- **Node.js 18 or newer** (https://nodejs.org). It runs the Drips page: your
+  saved drips, the editor, and effects when they play in the page.
 
 ## Install
 
@@ -79,17 +80,31 @@ A recipe is a few words, in any order:
 
 Open `/config` and find **Where effects play** under Drips:
 
-- **claude-window** (the default) plays effects over Claude's window, in
-  the Drips page in the desktop app's Browser pane. The first effect opens
-  the page. Outside the desktop app, the page opens in your own browser.
+- **claude-window** (the default) plays effects over the window Claude is
+  running in: the Claude desktop app's window, or the terminal window
+  running Claude Code (Ghostty, Terminal, iTerm2, kitty, WezTerm, the
+  VS Code and Cursor terminals, and others). The effect sits just above
+  that window and moves and resizes with it. Windows in front of Claude,
+  menus and notifications stay in front. If Drips can't find the window, it
+  plays over the screen under the pointer and says so once.
 - **fullscreen** plays effects over the whole screen under the pointer,
-  above every app and on every Space. Effects never take the pointer or
-  the keyboard: you can keep working through them. The first fullscreen
-  effect takes a few seconds longer, while Drips builds its small overlay
-  program with Swift. It's built once and kept in
-  `~/Library/Caches/glyphh-drips`. Fullscreen needs a plan with the
-  `fullscreen` limit on; without it, effects play in Claude's window and
+  above every app and on every Space. Fullscreen needs a plan with the
+  `fullscreen` limit on; without it, effects play over Claude's window and
   Drips says so once.
+- **browser-pane** plays effects in the Drips page, in the desktop app's
+  Browser pane. The first effect opens the page. Outside the desktop app,
+  the page opens in your own browser.
+
+Effects never take the pointer or the keyboard: you can keep working
+through them. The first effect over Claude's window or the screen takes a
+few seconds longer, while Drips builds its small overlay program with
+Swift. It's built once and kept in `~/Library/Caches/glyphh-drips`. Drips
+needs no extra permission for this: it reads only where Claude's window is
+and how big, never what's in it, so macOS doesn't ask for Screen Recording.
+
+Before version 1.1, **claude-window** meant the page in the Browser pane. If
+you chose it then, effects now play over Claude's window itself. Choose
+**browser-pane** for the page.
 
 Previews from the Drips page always play in the page, and a preview that
 keeps playing stops by itself after 12 seconds.
@@ -143,7 +158,7 @@ are set by the plan, and Glyphh's plans page lists them:
 | Limit | What it sets |
 | --- | --- |
 | `custom_drips` | How many drips you can save |
-| `fullscreen` | Effects over the whole screen. Without it, effects play in Claude's window |
+| `fullscreen` | Effects over the whole screen. Without it, effects play over Claude's window |
 
 When you reach a limit, Drips says which one, and which plan lifts it, with
 an **Upgrade** button. Drips you already saved keep working. Until you
@@ -171,7 +186,7 @@ limits keep working.
 ## Where things are kept
 
 Everything stays on your machine. Your saved drips are kept in Claude
-Code's store for Drips. The fullscreen overlay program is kept in
+Code's store for Drips. The overlay program is kept in
 `~/Library/Caches/glyphh-drips`. Your Glyphh sign-in is in
 `~/.glyphh/install.json`, readable only by you, and your plan's licence is
 in `~/.glyphh/license.json`. Every Glyphh mod shares them.
@@ -186,10 +201,12 @@ in `~/.glyphh/license.json`. Every Glyphh mod shares them.
   with a one-time address that stops working once it has been used.
 - Each effect runs in a sandboxed frame that can run its own animation and
   nothing else: it can't reach the page, your files or the network.
-- The fullscreen overlay is built on your Mac from the source in the
-  plugin (`native/overlay.swift`). It shows one effect, ignores the
-  pointer, closes when the effect ends or after its time limit (never more
-  than 30 minutes), and quits if Claude Code goes away.
+- The overlay is built on your Mac from the source in the plugin
+  (`native/overlay.swift`). It shows one effect, ignores the pointer,
+  closes when the effect ends or after its time limit (never more than 30
+  minutes), and quits if Claude Code goes away. To find Claude's window it
+  reads only each window's owner, layer and position, never a title or what
+  a window shows.
 - Drips talks to Glyphh only to sign in, renew your plan's licence,
   upgrade, open billing and sign out. It sends your Mac's name, a one-way
   hash of its hardware ID and the mod's version, never your drips. The

@@ -170,6 +170,28 @@ and its refusal line, so a save past a limit is refused inline with
 - Copy the layout of an existing Glyphh design when one exists (the Glyphh
   app's screens). Don't invent new chrome.
 
+## Platform notes
+
+- **macOS.** Drawing over Claude's own window is a native helper in
+  `native/`, built on the buyer's Mac with `swiftc` on first use (never an
+  Xcode prompt: check `xcode-select -p` before `xcrun`) and kept in
+  `~/Library/Caches/glyphh-<mod>`, one binary per hash of its source. It
+  finds the window Claude runs in (the desktop app,
+  `com.anthropic.claudefordesktop`, or the terminal app hosting Claude Code,
+  from the process's ancestors and `TERM_PROGRAM`/`__CFBundleIdentifier`)
+  with `CGWindowListCopyWindowInfo`, reading only owner, layer, number and
+  bounds. Window titles and contents are never read, so no Screen Recording
+  permission is asked for (checked on macOS 14). Its window is borderless,
+  transparent, ignores the mouse, never activates, sits at the normal level
+  directly above the target window, follows it at 10 Hz, closes on a
+  safety timeout (30 minutes at most) and exits when its parent dies.
+  Drips' `native/overlay.swift` is the reference.
+- **Windows.** Not built yet. The design is a WebView2 helper doing the
+  same: the target window from the process's ancestors, its rectangle from
+  `GetWindowRect`/`DwmGetWindowAttribute`, a layered `WS_EX_TRANSPARENT`
+  tool window placed just above it with `SetWindowPos`. Until then a mod
+  falls back to its page in the Browser pane.
+
 ## The helper process
 
 - The mod starts the helper detached, so it **survives a hot reload** of the
