@@ -1,0 +1,22 @@
+{
+  "name": "programs",
+  "version": "0.1.0",
+  "description": "Programs: deterministic jobs written with Claude, deployed by commit and run in rrotor, your own sandboxed runtime on this machine; Claude calls them and answers what they ask",
+  "author": { "name": "Glyphh AI", "url": "https://glyphh.ai" },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "runtime": {
+      "type": "string",
+      "title": "Container runtime",
+      "description": "Where rrotor runs. auto picks Apple's container (macOS 26, Apple silicon), then OrbStack, then Docker.",
+      "default": "auto",
+      "options": ["auto", "container", "orbstack", "docker"]
+    },
+    "image": {
+      "type": "string",
+      "title": "rrotor image (developers)",
+      "description": "Leave empty for the rrotor image this version of the mod pins by digest. A local tag here (for a build of rrotor) is used as it is, unverified.",
+      "default": ""
+    }
+  }
+}

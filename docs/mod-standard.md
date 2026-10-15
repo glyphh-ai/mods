@@ -221,7 +221,9 @@ See the root README for the details.
 - Read, copy or send Claude's login, tokens or account data anywhere.
 - Call Glyphh for anything but the account: the device flow, the licence
   (at session start and at half its life), the plans, checkout, billing and
-  sign-out. The sign-in sends the machine's name, a SHA-256 of its hardware
+  sign-out. A mod that runs rrotor (Programs, and later Gateway and Ada) also asks
+  for its local runtime's token (`POST /v1/runtime/local`) and hands it to
+  rrotor over rrotor's local API, never in a file, a log or a command line. The sign-in sends the machine's name, a SHA-256 of its hardware
   UUID and the mod's version, nothing else.
 - Send a person's data anywhere. Pages, files and settings stay on the
   machine. The Glyphh token goes only to the Glyphh server, in its
