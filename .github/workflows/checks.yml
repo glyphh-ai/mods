@@ -1,0 +1,39 @@
+# Checks on every push to main and every pull request: the shared licence
+# copies, the scripts' tests, each plugin's tests and validation, and a dry-run
+# build. Nothing is published.
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: macos-latest
+    env:
+      CLAUDE_CODE_ENABLE_FUNCTION_HOOKS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Shared licence copies match shared/licence
+        run: node scripts/check-shared.mjs
+      - name: Scripts' tests
+        run: node --test scripts/test/
+      - name: Each plugin's tests and validation
+        run: |
+          for dir in plugins/*/; do
+            echo "::group::${dir}"
+            claude plugin test "$dir"
+            claude plugin validate "$dir"
+            echo "::endgroup::"
+          done
+      - name: Dry-run build
+        run: node scripts/build.mjs --all --dry-run --out "$RUNNER_TEMP/marketplace"

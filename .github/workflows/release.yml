@@ -1,0 +1,85 @@
+# A release: on a tag v* (or by hand), the same checks as checks.yml, then the
+# real build (it refuses while release.json holds TBD or test values) into a
+# checkout of glyphh-ai/glyphh, the public marketplace buyers install from.
+#
+# Publishing is off until the repository variable PUBLISH_ENABLED is "true".
+# Until then the job stops before pushing, after showing what would change
+# and uploading the built marketplace as an artifact.
+#
+# Pushing needs the secret GLYPHH_MARKETPLACE_TOKEN: a fine-grained token
+# with Contents read and write on glyphh-ai/glyphh only (or that repository's
+# deploy key with write access, used through an SSH checkout).
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-latest
+    env:
+      CLAUDE_CODE_ENABLE_FUNCTION_HOOKS: "1"
+      PUBLISH: ${{ vars.PUBLISH_ENABLED == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Shared licence copies match shared/licence
+        run: node scripts/check-shared.mjs
+      - name: Scripts' tests
+        run: node --test scripts/test/
+      - name: Each plugin's tests and validation
+        run: |
+          for dir in plugins/*/; do
+            echo "::group::${dir}"
+            claude plugin test "$dir"
+            claude plugin validate "$dir"
+            echo "::endgroup::"
+          done
+      - name: Check out the public marketplace
+        uses: actions/checkout@v4
+        with:
+          repository: glyphh-ai/glyphh
+          path: marketplace
+          token: ${{ env.PUBLISH == 'true' && secrets.GLYPHH_MARKETPLACE_TOKEN || github.token }}
+          persist-credentials: ${{ env.PUBLISH == 'true' }}
+      - name: Build every plugin into it
+        run: node scripts/build.mjs --all --out marketplace
+      - name: What would change
+        working-directory: marketplace
+        run: git status --short && git diff --stat
+      - name: Keep the build
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketplace
+          path: |
+            marketplace
+            !marketplace/.git
+      - name: Publish to glyphh-ai/glyphh
+        if: env.PUBLISH == 'true'
+        working-directory: marketplace
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "The marketplace already holds this build."
+            exit 0
+          fi
+          git -c user.name="Glyphh AI" -c user.email="releases@glyphh.ai" commit -m "Release ${REF}"
+          git push origin HEAD:main
+      - name: Publishing is off
+        if: env.PUBLISH != 'true'
+        run: echo "::notice::PUBLISH_ENABLED is not true; nothing was pushed to glyphh-ai/glyphh."
