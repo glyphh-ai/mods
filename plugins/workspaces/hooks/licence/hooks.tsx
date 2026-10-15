@@ -1,3 +1,4 @@
+// Copied from shared/licence/hooks.tsx by scripts/sync-shared.mjs: edit it there.
 // The licence, wired to the engine: the one file of this module that holds
 // `$` and the licence's state (the engine follows `$` and atoms only within
 // the file whose hook received them). It adds `/<MOD> key <licence>` to the
@@ -17,7 +18,7 @@ import { verify } from './verify.ts'
 
 // The engine reads a state reference's plugin and key, and a hook's matcher,
 // as literals, so the mod's name ('workspaces', MOD in ./config) is written
-// out here too. Copied into another mod, change each.
+// out here too: scripts/sync-shared.mjs writes it in from MOD.
 const licence = atom({ plugin: 'workspaces', key: 'licence' } as const, INITIAL)
 /** Where the mod's page helper listens (the mod keeps it; read here only). */
 const helperInfo = atom({ plugin: 'workspaces', key: 'helper' } as const, null as HelperInfo | null)

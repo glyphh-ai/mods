@@ -1,9 +1,10 @@
+// Copied from shared/licence/verify.ts by scripts/sync-shared.mjs: edit it there.
 // A licence is base64url(JSON payload) "." base64url(Ed25519 signature over
 // the first part), signed by the site. Checked here, offline, with the public
-// key in ./config: no call home once a mod holds one. The mods' environment
+// key in ./site: no call home once a mod holds one. The mods' environment
 // has crypto.subtle.digest but no importKey, so the signature is checked by
 // @noble/ed25519 (./vendor), which hashes with that digest.
-import { PUBLIC_KEY } from './config.ts'
+import { PUBLIC_KEY } from './site.ts'
 import { verifyAsync } from './vendor/ed25519.ts'
 
 export type Licence = { v: 1; mod: string; install: string; session: string; issued: string }

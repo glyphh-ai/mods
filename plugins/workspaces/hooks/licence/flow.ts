@@ -1,3 +1,4 @@
+// Copied from shared/licence/flow.ts by scripts/sync-shared.mjs: edit it there.
 // The licence's life: the trial's first day, the stored licence checked at
 // each session start, the purchase (checkout opened, then the site asked
 // every few seconds until it answers a licence), and a licence key pasted in.
@@ -5,7 +6,8 @@
 import type { Timer } from 'claude-code'
 
 import type { LicenceState } from '../../types'
-import { MOD, PAYMENT_LINK, POLL_MS, PRODUCT, SITE, WAIT_MS } from './config.ts'
+import { MOD, PAYMENT_LINK, PRODUCT } from './config.ts'
+import { POLL_MS, SITE, WAIT_MS } from './site.ts'
 
 export type Deps = {
   store: {

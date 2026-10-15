@@ -1,3 +1,4 @@
+// Copied from shared/licence/vendor/ed25519.ts by scripts/sync-shared.mjs: edit it there.
 // @noble/ed25519 2.3.0, vendored unchanged (MIT, Paul Miller). Its LICENSE is beside this file.
 /*! noble-ed25519 - MIT License (c) 2019 Paul Miller (paulmillr.com) */
 /**

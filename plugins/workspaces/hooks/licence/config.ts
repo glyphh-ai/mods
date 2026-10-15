@@ -1,8 +1,8 @@
-// What makes this licence module this mod's. Test values: a later build step swaps in the live ones.
+// What makes the shared licence module (shared/licence) this mod's: the only
+// file of hooks/licence/ that is the mod's own. The build swaps PAYMENT_LINK
+// for the live one in release.json.
 export const MOD = 'workspaces'
-export const SITE = 'http://localhost:3000'
 export const PAYMENT_LINK = 'https://buy.stripe.com/test_8x228k14I6BG7UHayxc7u01'
-export const PUBLIC_KEY = 'LBZCuL7YrfirHogb_N5Iai0lQDaig-3VP8watWltwf0'
 
 /** The mod's name as people read it, and its price. */
 export const PRODUCT = 'Workspaces'
@@ -16,5 +16,3 @@ export const ABOUT = [
 ]
 
 export const TRIAL_DAYS = 7
-export const POLL_MS = 3_000
-export const WAIT_MS = 10 * 60_000

@@ -1,3 +1,4 @@
+// Copied from shared/licence/access.ts by scripts/sync-shared.mjs: edit it there.
 // What the licence allows now: licensed, a trial with days left, or neither.
 import type { LicenceState } from '../../types'
 import { ABOUT, MOD, PRICE, PRODUCT, TRIAL_DAYS } from './config.ts'
