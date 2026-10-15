@@ -57,7 +57,8 @@ the page for you.
 | `/dip back` | Returns to the workspace before; run it again to go back and forth |
 | `/stream [workspace]` | Opens the layout page in the Browser pane |
 | `/workspaces` | Opens the layout page on its workspace editor |
-| `/workspaces key <licence>` | Unlocks Workspaces with a licence key |
+| `/workspaces signin` | Signs in to Glyphh |
+| `/workspaces signout` | Signs this Mac out of Glyphh |
 | `/files` | Shows the Files pane |
 | `/diff` | Shows the Changes pane |
 | `/term` | Shows the Terminal pane |
@@ -160,21 +161,43 @@ which one.
 The editor saves to the files in `~/.glyphh`, and Workspaces reads them
 again straight away.
 
-## Trial and unlock
+## Your Glyphh account and plan
 
-Workspaces is free for 7 days. While the trial runs, the layout page's top
-bar shows the days left and an **Unlock — $5** button.
+Workspaces comes with a Glyphh subscription. Sign in with a free Glyphh
+account, and your plan sets what Workspaces can do.
 
-When the trial ends, `/dip`, `/stream`, the pane commands and `page_read`
-stop working until you unlock, and the layout page shows what Workspaces
-does with **Unlock — $5**. Open it with `/workspaces`. Checkout opens in
-your browser, and Workspaces unlocks by itself once you've paid. It's a
-one-off payment, not a subscription.
+**Sign in.** Open the layout page with `/workspaces` and press **Sign in to
+Glyphh**, or run `/workspaces signin`. A Glyphh page opens in your browser
+with a short code. Check the code matches the one Workspaces shows, then
+sign in with Google or GitHub. Workspaces updates by itself. One sign-in
+covers every Glyphh mod on your Mac. `/workspaces signout` signs the Mac out
+of all of them.
 
-The licence is checked on your machine, so after you unlock, Workspaces
-never needs to contact a server again. To use it on another machine, open
-**Licence** in the workspace editor and press **Copy licence key**, then
-run `/workspaces key <licence>` on the other machine.
+**What your plan unlocks.** Each plan sets three limits for Workspaces. The
+numbers are set by the plan, and Glyphh's plans page lists them:
+
+| Limit | What it sets |
+| --- | --- |
+| `workspaces` | How many workspaces you can make |
+| `favorites` | How many favourites you can keep |
+| `stream` | The live layout page. Without it, `/dip` switches the app's panes and folder only, and `/stream` and `page_read` are off |
+
+When you reach a limit, Workspaces says which one, and which plan lifts it,
+with an **Upgrade** button. Workspaces you already have keep working. If
+your plan doesn't include Workspaces, the layout page says so and offers
+**Upgrade**. Until you sign in, `/dip`, `/stream`, the pane commands and
+`page_read` don't run.
+
+**Upgrade and billing.** The layout page's top bar shows your plan, with
+**Upgrade** and **Manage billing**. Upgrade opens Glyphh's checkout in your
+browser, and Workspaces picks up the new plan by itself. Manage billing
+opens the billing page, where you change your card, see invoices, or
+cancel. Your org's admin makes these changes.
+
+**Offline.** Your plan is checked on your Mac, with a signed licence that
+Workspaces renews in the background each day. Offline, it keeps working
+until that licence runs out. After that, sign in again. On the Free plan,
+its limits keep working.
 
 ## Where things are kept
 
@@ -185,6 +208,9 @@ Everything stays on your machine:
 - The wall's order, folders, dock and open cards are in `~/.glyphh/echo.json`.
 - Sign-ins for the pages are kept in Chrome's own profile for Workspaces,
   in `~/Library/Application Support/glyphh-workspaces/chrome`.
+- Your Glyphh sign-in is in `~/.glyphh/install.json`, readable only by you,
+  and your plan's licence is in `~/.glyphh/license.json`. Every Glyphh mod
+  shares them.
 
 The first time it runs, Workspaces writes four favourites (Gmail, Slack
 kept in panel, Calendar, Google) and four workspaces (Comms, IDE, Browse, Files). A
@@ -225,9 +251,13 @@ A workspace file looks like this:
   only `http` and `https` pages, and serves only small images.
 - Workspaces controls its Chrome through a private pipe, not a network
   port, so no other program can take control of the signed-in pages.
+- Workspaces talks to Glyphh only to sign in, renew your plan's licence,
+  upgrade, open billing and sign out. It sends your Mac's name, a one-way
+  hash of its hardware ID and the mod's version, never your pages or
+  files. The Glyphh token is never shown to the page or written to a log.
 
 ## For developers
 
 This mod is built from the private source repository to the Glyphh mod standard
-(`docs/mod-standard.md` there). Its licence code in `hooks/licence/` is a copy of the
+(`docs/mod-standard.md` there). Its account code in `hooks/licence/` is a copy of the
 shared module: change the source and sync, never the copy.

@@ -19,8 +19,8 @@ plugins/<mod>/
   hooks/hooks.json             { "modules": ["./register.tsx"] }
   hooks/register.tsx           register(on, options): wires the parts below
   hooks/<mod>/                 the mod's own code: small files, one job each
-  hooks/licence/               the shared licence module (a copy, never edited here)
-  hooks/licence/config.ts      the mod's licence values: the one file here that is its own
+  hooks/licence/               the shared account module (a copy, never edited here)
+  hooks/licence/config.ts      the mod's own values: the one file here that is its own
   helper/                      the local page and its server, when the mod has rich UI
   native/                      native source built on the buyer's machine, when needed
   types/index.d.ts             the $.state contract
@@ -62,36 +62,54 @@ plugins/<mod>/
   function (a value outside its options takes the default). A change reloads
   the module. **A mod never has a settings screen of its own.**
 
-## Licensing
+## Accounts and plans
 
-Every mod sells the same way, through the shared module
-(`shared/licence/`, copied in by `node scripts/sync-shared.mjs`):
+Every mod is part of one subscription. There is no trial, no one-off price
+and no licence key. A person signs in to Glyphh once, with a free account,
+and their plan sets what each mod may do. The shared module
+(`shared/licence/`, copied in by `node scripts/sync-shared.mjs`) does all of
+it; `shared/README.md` has the flow in full.
 
-1. **Trial.** The trial starts on the first run and lasts `TRIAL_DAYS` (7).
-   The start is kept in the mod's store.
-2. **Purchase.** The price is $5, paid once. Unlock opens the mod's Stripe
-   Payment Link with `?client_reference_id=<install id>`. The install id is
-   made once and kept in the store. The mod then polls
-   `https://glyphh.ai/api/license?mod=<mod>&install=<id>` every 3 seconds for
-   up to 10 minutes, until the site answers a licence.
-3. **The licence.** A licence is `base64url(payload).base64url(signature)`,
-   signed by the site with Ed25519. It is checked offline with the public key
-   in `site.ts`, using the vendored `@noble/ed25519`. The payload names the
-   mod, so a licence for one mod never unlocks another.
-4. **Another machine.** `/<mod> key <licence>` takes a licence pasted in.
-   Copy licence key, in the mod's page, gives it to the buyer.
-5. **After the trial**, gated commands answer `refusal()`, and the mod's page
-   shows the locked screen: what the mod does (`ABOUT`) and Unlock.
+1. **One sign-in per machine.** `/<mod> signin` (or **Sign in to Glyphh** in
+   the mod's page) runs the Glyphh server's device flow: a code shown, the
+   server's page opened in the browser, the token polled for. The token is
+   kept in `~/.glyphh/install.json` (mode 0600, written atomically, never
+   logged or sent to a page) and every Glyphh mod on the machine shares it.
+   `/<mod> signout` signs the machine out for all of them. Each mod reads the
+   shared files again every few seconds.
+2. **The plan's licence.** `GET /v1/license` answers the plan, signed with
+   Ed25519 over Python's canonical JSON. The mod checks it offline with the
+   public key in `server.ts`, keeps it in `~/.glyphh/license.json`, and
+   refreshes it at each session start and at half its life. A licence for
+   another install, or with a bad signature, is never used. Offline, a valid
+   licence keeps working until it expires; then the mod asks to sign in
+   again (on the Free plan, Free's limits keep holding).
+3. **Limits.** `payload.mods["<mod>"].limits` names each limit: a number, or
+   null for unlimited. A name it leaves out is 0; a mod not in `mods` is not
+   in the plan. A mod enforces only its own limit names, declared in
+   `LIMITS` in its `config.ts` as a count (`workspaces`, `custom_drips`) or a
+   switch, 0 or 1 (`stream`, `fullscreen`). Workspaces has `workspaces`,
+   `favorites` and `stream`; Drips has `custom_drips` and `fullscreen`.
+4. **Refusals.** Signed out, a mod's gated commands answer `gate()`: sign in.
+   Not in the plan, or past a limit, they answer `refusal()`: a short line
+   naming the limit and the plan that lifts it, with **Upgrade**. What a
+   person already has keeps working; a limit refuses the next one.
+5. **Upgrade and billing.** Upgrade opens the server's Stripe checkout for
+   the plan that lifts the limit and waits for the licence's plan to change;
+   Manage billing opens Stripe's billing page. The org's admin makes these
+   changes; the mod says so to anyone else.
 
-The mod's own values live only in `hooks/licence/config.ts`: `MOD`, `PRODUCT`,
-`PRICE`, `ABOUT`, `PAYMENT_LINK` (the test link in source) and `TRIAL_DAYS`.
-Every other file in `hooks/licence/` is a copy. Edit `shared/licence/` and
-sync. CI fails on a copy that differs. A release swaps in the live `SITE`,
-`PUBLIC_KEY` and `PAYMENT_LINK` from `release.json`.
+The mod's own values live only in `hooks/licence/config.ts`: `MOD`,
+`PRODUCT`, `ABOUT` and `LIMITS`. Every other file in `hooks/licence/` is a
+copy. Edit `shared/licence/` and sync. CI fails on a copy that differs. A
+release swaps in the live `SERVER` and `PUBLIC_KEY` from `release.json`.
 
-The page shows the licence in words that the mod sends it: the days left and
-Unlock, the wait for checkout, or the locked screen. The licence itself never
-goes to the page.
+The page shows the account in words that the mod sends it (`pageStatus`):
+signed out with **Sign in to Glyphh** (and the code while signing in), the
+plan with **Upgrade** and **Manage billing** in its top bar, or the locked
+screen (what the mod does, and why it is closed). It also gets each limit
+and its refusal line, so a save past a limit is refused inline with
+**Upgrade**. The token never goes to the page.
 
 ## UI
 
@@ -168,15 +186,18 @@ goes to the page.
   advances with 1-second intervals exhaust the kit's waits.
 - `claude plugin test` and `claude plugin validate` both pass clean, with
   `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`.
-- Licence tests (access, flow, verify) stay in each plugin, naming that
-  mod's values.
+- Account tests (canonical, verify, access, flow) stay in each plugin,
+  naming that mod's values. Licence fixtures are the server's answers,
+  written by Python's `json.dumps` and signed with the dev key; the canonical
+  JSON is checked byte for byte against Python's.
 
 ## Naming and writing
 
 - The mod's name is a lowercase word (`workspaces`, `drips`). `PRODUCT` is
   how people read it (`Workspaces`, `Drips`).
-- Commands are `/<mod>` for the mod's own page and licence, plus short verbs
-  of its own (`/dip`, `/drip`).
+- Commands are `/<mod>` for the mod's own page, `/<mod> signin` and
+  `/<mod> signout` for the Glyphh account, plus short verbs of its own
+  (`/dip`, `/drip`).
 - Write user-facing words in plain British English, short and concrete. Say
   what something does, not how it works.
 - Use clear commit messages, one step per commit. Commits made with Claude
@@ -185,7 +206,8 @@ goes to the page.
 ## Versioning and releases
 
 1. Bump the plugin's `version` in the change being released.
-2. Keep live values in `release.json`. A release refuses `TBD` or test values.
+2. Keep live values in `release.json` (`SERVER`, `PUBLIC_KEY`). A release
+   refuses `TBD` or a server that isn't https.
 3. Tag `v*`. `release.yml` checks, tests, validates and builds every mod. It
    publishes to glyphh-ai/glyphh only when `PUBLISH_ENABLED` is `true`.
 
@@ -197,9 +219,12 @@ See the root README for the details.
   session-scoped commands (`/model`, `/effort` through `$.command.run`), and
   use `userConfig` for the mod's own settings.
 - Read, copy or send Claude's login, tokens or account data anywhere.
-- Call home after licensing. Once a licence checks out offline, the mod
-  makes no request to Glyphh. Before that, the only requests are the
-  checkout poll while the buyer is buying.
-- Send buyer data anywhere. Pages, files and settings stay on the machine.
+- Call Glyphh for anything but the account: the device flow, the licence
+  (at session start and at half its life), the plans, checkout, billing and
+  sign-out. The sign-in sends the machine's name, a SHA-256 of its hardware
+  UUID and the mod's version, nothing else.
+- Send a person's data anywhere. Pages, files and settings stay on the
+  machine. The Glyphh token goes only to the Glyphh server, in its
+  `Authorization` header.
 - Open native apps, links or URLs the buyer didn't ask for.
 - Ship tests, debug pages or developer tooling.

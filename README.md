@@ -1,7 +1,9 @@
 # Glyphh mods (source)
 
 This private repository is the source of every Glyphh mod: plugins that change
-Claude's own interface and behaviour, sold for $5 each after a 7-day trial.
+Claude's own interface and behaviour. Glyphh is a subscription: a person signs
+in once with a free Glyphh account, and their plan sets what each mod may do
+(its limits, from the plan's licence).
 
 Buyers never see this repository. They install from
 [glyphh-ai/glyphh](https://github.com/glyphh-ai/glyphh), the public
@@ -22,8 +24,8 @@ writes it.
 | Path | What it is |
 | --- | --- |
 | `plugins/<mod>/` | One mod: its manifest, hooks, helper, types, tests and README. Each loads on its own. |
-| `shared/licence/` | The licence module every mod carries. It is the one source, copied into each plugin's `hooks/licence/`. See `shared/README.md`. |
-| `release.json` | The live values a release swaps in: `SITE`, `PUBLIC_KEY`, and each mod's `PAYMENT_LINK`. |
+| `shared/licence/` | The account module every mod carries: the Glyphh sign-in and the plan's licence. It is the one source, copied into each plugin's `hooks/licence/`. See `shared/README.md`. |
+| `release.json` | The live values a release swaps in: `SERVER` (the Glyphh server) and `PUBLIC_KEY` (the licence's Ed25519 public key). |
 | `scripts/` | `sync-shared.mjs`, `check-shared.mjs` and `build.mjs`, with their tests in `scripts/test/`. |
 | `.github/workflows/` | `checks.yml` runs on every push and pull request. `release.yml` runs on a `v*` tag. |
 | `docs/mod-standard.md` | The standard every mod follows. Read it before starting one. |
@@ -64,16 +66,16 @@ first time it loads the mod. That folder is ignored by git and never ships.
 1. Read `docs/mod-standard.md`.
 2. Make `plugins/<mod>/` in the standard layout. Write
    `hooks/licence/config.ts` with the mod's own values (`MOD`, `PRODUCT`,
-   `PRICE`, `ABOUT`, `PAYMENT_LINK`, `TRIAL_DAYS`).
-3. Run `node scripts/sync-shared.mjs` to copy in the licence module.
-4. Add the mod's section to `release.json`, with `"PAYMENT_LINK": "TBD"` until
-   its live Stripe Payment Link exists.
+   `ABOUT`, and `LIMITS`: the limit names the mod enforces).
+3. Run `node scripts/sync-shared.mjs` to copy in the account module.
+4. Ask for the mod and its limit names in the server's plans (each plan
+   version's `mod_limits`), so the licence carries them.
 5. Write the tests and the buyer README, ending with the developer footer.
 6. Check it locally with `node scripts/check-shared.mjs`, then
    `claude plugin test` and `claude plugin validate` on the plugin, then
    `node scripts/build.mjs <mod> --dry-run --out /tmp/market`.
 
-## Change the licence module
+## Change the account module
 
 Edit `shared/licence/`, never a plugin's copy. Then run
 `node scripts/sync-shared.mjs` and commit the source and the copies together.
@@ -83,8 +85,8 @@ Edit `shared/licence/`, never a plugin's copy. Then run
 
 1. Bump `version` in the plugin's `.claude-plugin/plugin.json` for each mod
    that changed. The build never changes versions.
-2. Make sure `release.json` holds live values. The build refuses `TBD`, a
-   Stripe test link, or a site that isn't https.
+2. Make sure `release.json` holds live values. The build refuses `TBD`, or a
+   server that isn't https.
 3. Tag and push the tag: `git tag v2026.10.15 && git push origin v2026.10.15`.
 4. `release.yml` then does the following:
    - Checks the shared copies.
@@ -110,7 +112,7 @@ To see a build without releasing:
 node scripts/build.mjs --all --dry-run --out /tmp/market
 ```
 
-A dry run keeps the test values where `release.json` still says `TBD`, and
+A dry run keeps the dev values where `release.json` still says `TBD`, and
 says which ones it kept.
 
 ## What stays private
@@ -127,6 +129,15 @@ These stay in this repository and never go to buyers:
 - this README and the standard
 
 The build copies only a plugin's manifest, `hooks/`, `helper/`, `native/`,
-`types/`, README and LICENSE. No secret lives in any file: the Stripe
-Payment Links and the site's public key are public by design, and the
-signing key stays on the site.
+`types/`, README and LICENSE. No secret lives in any file: the server's
+address and the licence's public key are public by design, the signing key
+stays on the server, and each person's token stays in their own
+`~/.glyphh/install.json`.
+
+## Running against a local server
+
+The dev source points at `http://localhost:8080` with the dev public key.
+For a local server's licences to check out, run it with
+`GLYPHH_LICENSE_KEY` set to the dev key's private half (base64 of its raw 32
+bytes); a server started without one makes a new key, and the mods then
+ignore its licences.

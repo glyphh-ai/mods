@@ -52,7 +52,8 @@ page for you.
 | `/drip delete <name>` | Deletes a saved drip |
 | `/drip stop` | Stops every effect that keeps playing |
 | `/drips` | Opens the Drips page: your saved drips, and an editor |
-| `/drips key <licence>` | Unlocks Drips with a licence key |
+| `/drips signin` | Signs in to Glyphh |
+| `/drips signout` | Signs this Mac out of Glyphh |
 
 `/drip` runs straight away, even while Claude is working.
 
@@ -86,7 +87,9 @@ Open `/config` and find **Where effects play** under Drips:
   the keyboard: you can keep working through them. The first fullscreen
   effect takes a few seconds longer, while Drips builds its small overlay
   program with Swift. It's built once and kept in
-  `~/Library/Caches/glyphh-drips`.
+  `~/Library/Caches/glyphh-drips`. Fullscreen needs a plan with the
+  `fullscreen` limit on; without it, effects play in Claude's window and
+  Drips says so once.
 
 Previews from the Drips page always play in the page, and a preview that
 keeps playing stops by itself after 12 seconds.
@@ -123,26 +126,48 @@ Two more rows in `/config`, both off until you turn them on:
   run. It goes a moment after the last one finishes. A matrix you started
   yourself is left alone.
 
-## Trial and unlock
+## Your Glyphh account and plan
 
-Drips is free for 7 days. While the trial runs, the Drips page shows the
-days left and an **Unlock — $5** button.
+Drips comes with a Glyphh subscription. Sign in with a free Glyphh account,
+and your plan sets what Drips can do.
 
-When the trial ends, effects stop playing until you unlock (your saved
-drips stay, and `/drip list`, `save`, `delete` and `stop` still work).
-Open the page with `/drips` and press **Unlock — $5**. Checkout opens in
-your browser, and Drips unlocks by itself once you've paid. It's a one-off
-payment, not a subscription.
+**Sign in.** Open the page with `/drips` and press **Sign in to Glyphh**,
+or run `/drips signin`. A Glyphh page opens in your browser with a short
+code. Check the code matches the one Drips shows, then sign in with Google
+or GitHub. Drips updates by itself. One sign-in covers every Glyphh mod on
+your Mac. `/drips signout` signs the Mac out of all of them.
 
-The licence is checked on your machine, so after you unlock, Drips never
-needs to contact a server again. To use it on another machine, run
-`/drips key <licence>` there.
+**What your plan unlocks.** Each plan sets two limits for Drips. The numbers
+are set by the plan, and Glyphh's plans page lists them:
+
+| Limit | What it sets |
+| --- | --- |
+| `custom_drips` | How many drips you can save |
+| `fullscreen` | Effects over the whole screen. Without it, effects play in Claude's window |
+
+When you reach a limit, Drips says which one, and which plan lifts it, with
+an **Upgrade** button. Drips you already saved keep working. If your plan
+doesn't include Drips, the page says so and offers **Upgrade**. Until you
+sign in, effects don't play (`/drip list`, `delete` and `stop` still work).
+
+**Upgrade and billing.** The Drips page shows your plan, with **Upgrade**
+and **Manage billing**. Upgrade opens Glyphh's checkout in your browser, and
+Drips picks up the new plan by itself. Manage billing opens the billing
+page, where you change your card, see invoices, or cancel. Your org's admin
+makes these changes.
+
+**Offline.** Your plan is checked on your Mac, with a signed licence that
+Drips renews in the background each day. Offline, it keeps working until
+that licence runs out. After that, sign in again. On the Free plan, its
+limits keep working.
 
 ## Where things are kept
 
 Everything stays on your machine. Your saved drips are kept in Claude
 Code's store for Drips. The fullscreen overlay program is kept in
-`~/Library/Caches/glyphh-drips`.
+`~/Library/Caches/glyphh-drips`. Your Glyphh sign-in is in
+`~/.glyphh/install.json`, readable only by you, and your plan's licence is
+in `~/.glyphh/license.json`. Every Glyphh mod shares them.
 
 ## Security
 
@@ -158,9 +183,13 @@ Code's store for Drips. The fullscreen overlay program is kept in
   plugin (`native/overlay.swift`). It shows one effect, ignores the
   pointer, closes when the effect ends or after its time limit (never more
   than 30 minutes), and quits if Claude Code goes away.
+- Drips talks to Glyphh only to sign in, renew your plan's licence,
+  upgrade, open billing and sign out. It sends your Mac's name, a one-way
+  hash of its hardware ID and the mod's version, never your drips. The
+  Glyphh token is never shown to the page or written to a log.
 
 ## For developers
 
 This mod is built from the private source repository to the Glyphh mod standard
-(`docs/mod-standard.md` there). Its licence code in `hooks/licence/` is a copy of the
+(`docs/mod-standard.md` there). Its account code in `hooks/licence/` is a copy of the
 shared module: change the source and sync, never the copy.
