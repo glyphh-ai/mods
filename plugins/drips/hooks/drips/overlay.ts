@@ -1,25 +1,40 @@
-// The fullscreen overlay's command protocol (native/overlay.swift), pure.
+// The native overlay's command protocol (native/overlay.swift), pure.
 //
 //   drips-overlay screen   prints the screen under the cursor, one JSON line:
 //                          {"x":0,"y":0,"w":1512,"h":982} (points, AppKit's
 //                          global coordinates)
+//   drips-overlay apps     prints the apps among its ancestors, nearest
+//                          first: {"ancestors":[{"pid":436,"bundleId":
+//                          "com.apple.Terminal","regular":true}]}
+//   drips-overlay window   reads one WindowRequest on stdin and prints the
+//                          target app's window, {"found":true,"id":N,"x":..,
+//                          "y":..,"w":..,"h":..}, or the screen under the
+//                          cursor with "found":false when it has none
 //   drips-overlay play     reads one PlayRequest as JSON on stdin, opens a
-//                          transparent, click-through window over that screen
-//                          showing the document, and prints one JSON line per
+//                          transparent, click-through window over its frame
+//                          showing the document (layer "window": directly
+//                          above the window `follow` names, following it ten
+//                          times a second; layer "screen": above everything,
+//                          on every Space), and prints one JSON line per
 //                          event: {"t":"shown","pid":123} once on screen, then
 //                          {"t":"closed","why":"signal"|"timeout"|"term"|"orphan"}
 //                          as it exits; {"t":"error","message":"..."} when it
 //                          cannot. It closes on the document's __drip_close__,
 //                          after closeAfterMs (clamped to OVERLAY_CAP_MS), on
 //                          SIGTERM, or when its parent is gone.
+import type { Ancestor, Target } from './target.ts'
 
-export const PROTOCOL_VERSION = 1
+export const PROTOCOL_VERSION = 2
 /** The overlay never stays longer than this, whatever it is asked. */
 export const OVERLAY_CAP_MS = 30 * 60_000
 export const OVERLAY_MIN_MS = 100
 
 export type Screen = { x: number; y: number; w: number; h: number }
-export type PlayRequest = { v: typeof PROTOCOL_VERSION; html: string; screen: Screen; closeAfterMs: number }
+/** Where the window command found the target: its window, or (not found) the screen under the cursor. */
+export type Located = { found: true; id: number; frame: Screen } | { found: false; frame: Screen }
+export type Layer = 'window' | 'screen'
+export type WindowRequest = { v: typeof PROTOCOL_VERSION; target: Target }
+export type PlayRequest = { v: typeof PROTOCOL_VERSION; html: string; frame: Screen; closeAfterMs: number; layer: Layer; follow: number | null }
 export type CloseReason = 'signal' | 'timeout' | 'term' | 'orphan'
 export type OverlayEvent = { t: 'shown'; pid: number } | { t: 'closed'; why: CloseReason } | { t: 'error'; message: string }
 
@@ -38,9 +53,41 @@ export function parseScreen(text: string): Screen | null {
 
 export const clampMs = (ms: number) => Math.min(OVERLAY_CAP_MS, Math.max(OVERLAY_MIN_MS, Number.isFinite(ms) ? Math.round(ms) : OVERLAY_CAP_MS))
 
+/** The window the overlay printed, or the screen it fell back to; null when it is neither. */
+export function parseLocated(text: string): Located | null {
+  try {
+    const m = JSON.parse(text.trim()) as Record<string, unknown>
+    const frame = parseScreen(JSON.stringify({ x: m.x, y: m.y, w: m.w, h: m.h }))
+    if (!frame) return null
+    if (m.found === true && isNum(m.id) && m.id > 0) return { found: true, id: m.id, frame }
+    return m.found === false ? { found: false, frame } : null
+  } catch {
+    return null
+  }
+}
+
+/** The apps the overlay found among its ancestors, nearest first; junk entries passed over. */
+export function parseAncestors(text: string): Ancestor[] {
+  try {
+    const list = (JSON.parse(text.trim()) as { ancestors?: unknown }).ancestors
+    if (!Array.isArray(list)) return []
+    return list.flatMap((a: Record<string, unknown>) =>
+      a && isNum(a.pid) && a.pid > 0 && typeof a.bundleId === 'string' && a.bundleId ? [{ pid: a.pid, bundleId: a.bundleId, regular: a.regular === true }] : [],
+    )
+  } catch {
+    return []
+  }
+}
+
+/** What `window` reads on stdin. */
+export function windowRequest(target: Target): string {
+  const req: WindowRequest = { v: PROTOCOL_VERSION, target }
+  return JSON.stringify(req)
+}
+
 /** What `play` reads on stdin. */
-export function playRequest(html: string, screen: Screen, closeAfterMs: number): string {
-  const req: PlayRequest = { v: PROTOCOL_VERSION, html, screen, closeAfterMs: clampMs(closeAfterMs) }
+export function playRequest(html: string, frame: Screen, closeAfterMs: number, layer: Layer, follow: number | null): string {
+  const req: PlayRequest = { v: PROTOCOL_VERSION, html, frame, closeAfterMs: clampMs(closeAfterMs), layer, follow }
   return JSON.stringify(req)
 }
 

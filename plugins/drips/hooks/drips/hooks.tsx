@@ -2,8 +2,9 @@
 // the mod's state (the engine follows `$` and atoms only within the file
 // whose hook received them), handing the rest closures. It runs the Drips
 // page's helper (helper/server.mjs), detached so it outlives the mod's
-// reloads, and the fullscreen overlay (native/overlay.swift), one process per
-// effect. Where effects play is the /config row `display`.
+// reloads, and the native overlay (native/overlay.swift), one process per
+// effect, over Claude's window or the whole screen. Where effects play is the
+// /config row `display`.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions, Timer } from 'claude-code'
 
@@ -11,12 +12,13 @@ import type { HelperInfo } from '../../types'
 import { gateOf, INITIAL, refusal } from '../licence/access.ts'
 import { BUILTIN_EFFECT_LIST, BUILTIN_EFFECTS } from './effects.ts'
 import { createFun } from './fun.ts'
-import { eventsOf, fullscreenHost, prepareOverlay, type FullscreenDeps, type Prepared } from './fullscreen.ts'
 import { deleteCustom, dripId, listCustoms, readCustoms, saveCustom, type Store } from './library.ts'
 import { HELPER_FILES, linkTo, versionOf, type Link, type PageMessage } from './link.ts'
 import { createManager, customEffects, type Host, type Manager } from './manager.ts'
+import { ancestorsOf, eventsOf, nativeHost, prepareOverlay, type NativeDeps, type Placement, type Prepared } from './native.ts'
 import { findNode, NODE_MISSING } from './node.ts'
 import { settingsOf, type Settings } from './settings.ts'
+import { selectTarget, TERMINAL_ENV_NAMES, type Target, type TerminalEnv } from './target.ts'
 import { showPage, shownText, windowHost, type PageDeps, type WindowHost } from './window.ts'
 
 const account = atom({ plugin: 'drips', key: 'account' } as const, INITIAL)
@@ -28,16 +30,27 @@ const TOOL_PREFIX = 'mcp__drips__'
 const NOT_A_RECIPE = ['save', 'delete', 'list']
 
 /** This load's pieces: made at the session's start (a reload makes them again). */
-type Mod = { manager: Manager; window: WindowHost; fullscreen: Promise<Prepared> | null; fun: ReturnType<typeof createFun> }
+type Mod = {
+  manager: Manager
+  /** The Drips page in the Browser pane. */
+  window: WindowHost
+  /** The native overlay's binary, built on first use. */
+  native: Promise<Prepared> | null
+  /** The window Claude runs in, found on first use. */
+  target: Promise<Target | null> | null
+  fun: ReturnType<typeof createFun>
+}
 let settings: Settings
 let mod: Mod | null = null
 /** The helper this load talks to, and the timer that collects the page's messages. */
 let helper: Link | null = null
 let collecting: Timer | null = null
 let starting: Promise<Link> | null = null
-/** The fullscreen fallback, and fullscreen left out of the plan, are each said once per load. */
+/** Each fallback is said once per load: the overlay unavailable, fullscreen
+ *  left out of the plan, Claude's window not found. */
 let isFallbackSaid = false
 let isPlanFallbackSaid = false
+let isMissedSaid = false
 
 const short = (err: unknown) => String(err instanceof Error ? err.message : err).replace(/^(Hooks)?Error: /, '').slice(0, 300)
 
@@ -62,9 +75,9 @@ function pageDeps($: EngineInterface): PageDeps {
   }
 }
 
-function fullscreenDeps($: EngineInterface): FullscreenDeps {
+function nativeDeps($: EngineInterface): NativeDeps {
   return {
-    run: (argv, timeoutMs) => $.process.run(argv, timeoutMs ? { timeoutMs } : undefined).catch(() => null),
+    run: (argv, opts) => $.process.run(argv, opts).catch(() => null),
     spawn: (argv, input) => eventsOf($.process.spawn({ argv, input })),
     read: async path => String(await $.fs.read(path)),
     exists: path => $.fs.exists(path),
@@ -81,7 +94,7 @@ function build($: EngineInterface): Mod {
     after: (ms, fn) => void $.clock.after(ms, fn),
     report,
   })
-  const m: Mod = { manager, window: windowHost(pageDeps($)), fullscreen: null, fun: null as never }
+  const m: Mod = { manager, window: windowHost(pageDeps($)), native: null, target: null, fun: null as never }
   m.fun = createFun(
     {
       isAllowed: async () => !(await refused($)),
@@ -98,18 +111,44 @@ function build($: EngineInterface): Mod {
 
 const modOf = ($: EngineInterface) => (mod ??= build($))
 
-/** Where effects play now: the setting's host; Claude's window for a preview,
- *  and where the fullscreen overlay cannot run here (said once). */
+/** The window Claude runs in: the desktop app's, or the terminal's that
+ *  hosts this session (its ancestors, as the overlay sees them, and the
+ *  environment). */
+async function findTarget($: EngineInterface, binary: string): Promise<Target | null> {
+  const env: TerminalEnv = {}
+  for (const name of TERMINAL_ENV_NAMES) env[name] = await $.env.get(name)
+  const isDesktop = (await $.session.surfaces()).includes('desktop')
+  return selectTarget({ isDesktop, env, ancestors: await ancestorsOf(nativeDeps($), binary) })
+}
+
+function placement($: EngineInterface, m: Mod, binary: string, display: 'claude-window' | 'fullscreen'): Placement {
+  if (display === 'fullscreen') return { kind: 'fullscreen' }
+  return {
+    kind: 'window',
+    target: () => (m.target ??= findTarget($, binary)),
+    missed: () => {
+      if (!isMissedSaid) $.ui.toast("Drips could not find Claude's window: effects play over the screen under the pointer.")
+      isMissedSaid = true
+    },
+  }
+}
+
+/** Where effects play now: the setting's host. A preview plays in the page.
+ *  Fullscreen left out of the plan plays over Claude's window; where the
+ *  native overlay cannot run here, effects play in the page (each said once). */
 async function hostOf($: EngineInterface, m: Mod, preview = false): Promise<Host> {
-  const planRefuses = !preview && settings.display === 'fullscreen' ? refusal(await read($, account), await $.clock.now(), 'fullscreen') : null
+  let display = preview ? 'browser-pane' : settings.display
+  const planRefuses = display === 'fullscreen' ? refusal(await read($, account), await $.clock.now(), 'fullscreen') : null
   if (planRefuses) {
-    if (!isPlanFallbackSaid) $.ui.toast(`${planRefuses} Playing in Claude's window instead.`)
+    if (!isPlanFallbackSaid) $.ui.toast(`${planRefuses} Playing over Claude's window instead.`)
     isPlanFallbackSaid = true
-  } else if (!preview && settings.display === 'fullscreen') {
-    m.fullscreen ??= prepareOverlay(fullscreenDeps($))
-    const prepared = await m.fullscreen
-    if ('binary' in prepared) return fullscreenHost(fullscreenDeps($), prepared.binary)
-    if (!isFallbackSaid) $.ui.toast(`${prepared.missing} Playing in Claude's window instead.`)
+    display = 'claude-window'
+  }
+  if (display !== 'browser-pane') {
+    m.native ??= prepareOverlay(nativeDeps($))
+    const prepared = await m.native
+    if ('binary' in prepared) return nativeHost(nativeDeps($), prepared.binary, placement($, m, prepared.binary, display))
+    if (!isFallbackSaid) $.ui.toast(`${prepared.missing} Playing in the Drips page instead.`)
     isFallbackSaid = true
   }
   if (!(await read($, nodePath))) throw new Error(NODE_MISSING)
@@ -278,6 +317,7 @@ export function drips(on: On, options: PluginOptions) {
   helper = null
   isFallbackSaid = false
   isPlanFallbackSaid = false
+  isMissedSaid = false
 
   on('session.start', async ($, e, next) => {
     mod = build($)

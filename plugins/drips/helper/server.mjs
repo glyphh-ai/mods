@@ -58,6 +58,7 @@ const ASSETS = {
   "/runner.mjs": "text/javascript",
   "/page.css": "text/css",
 }
+const DISPLAYS = ["claude-window", "fullscreen", "browser-pane"]
 const ASKS = ["play", "stop", "save", "delete", "closed"]
 const isLicenceAction = a => ["signin", "cancel", "upgrade", "billing", "addon", "confirm"].includes(a) || /^upgrade:[a-z_]{1,40}$/.test(String(a))
 
@@ -146,7 +147,7 @@ const server = createServer(async (req, res) => {
     } else if (route === "POST /api/library") {
       const body = await readBody(req)
       if (Array.isArray(body?.drips) && Array.isArray(body?.effects)) {
-        library = { drips: body.drips, effects: body.effects, display: body.display === "fullscreen" ? "fullscreen" : "claude-window" }
+        library = { drips: body.drips, effects: body.effects, display: DISPLAYS.includes(body.display) ? body.display : "claude-window" }
         emit({ t: "library" })
       }
       json(res, {})

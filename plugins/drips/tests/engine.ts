@@ -1,6 +1,6 @@
 // The world beneath the mod at the engine's level: HOME, Node, the desktop
-// app's Browser pane, the Drips page's helper, swiftc and the fullscreen
-// overlay's processes, all in memory.
+// app's Browser pane, the Drips page's helper, swiftc and the native
+// overlay's processes (and the windows it finds), all in memory.
 import type { CommandRunInput, On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
@@ -23,10 +23,26 @@ export type WorldOptions = {
   account?: Account
   /** GET /v1/addons's answer, when not the catalog's. */
   addons?: Answer
+  /** The apps among the overlay's ancestors: the Claude desktop app unless a test says. */
+  ancestors?: { pid: number; bundleId: string; regular: boolean }[]
+  /** The environment beyond HOME. */
+  env?: Record<string, string>
+  /** The target app has no window on screen. */
+  noWindow?: boolean
 }
 
+/** Claude's window as the overlay finds it, and the screen under the pointer. */
+export const CLAUDE_WINDOW = { id: 79026, frame: { x: 799, y: 298, w: 1325, h: 1138 } }
+export const SCREEN = { x: 0, y: 0, w: 1440, h: 900 }
+export const CLAUDE_APP = { pid: 48036, bundleId: 'com.anthropic.claudefordesktop', regular: true }
+
 /** One fullscreen overlay process: its request, and whether it was told to end. */
-export type FakeOverlay = { pid: number; request: { html: string; screen: unknown; closeAfterMs: number }; ended: boolean; end(why: string): void }
+export type FakeOverlay = {
+  pid: number
+  request: { v: number; html: string; frame: unknown; closeAfterMs: number; layer: string; follow: number | null }
+  ended: boolean
+  end(why: string): void
+}
 
 export function world(on: On, options: WorldOptions = {}) {
   const ran: string[][] = []
@@ -40,6 +56,8 @@ export function world(on: On, options: WorldOptions = {}) {
   const tools: string[] = []
   const files = new Set<string>()
   const overlays: FakeOverlay[] = []
+  /** What the overlay's window command was asked to find. */
+  const windowAsks: unknown[] = []
   // ~/.glyphh: the account's files, shared by every Glyphh mod.
   const glyphh = new Map<string, string>()
   const account = options.account ?? 'pro'
@@ -64,7 +82,7 @@ export function world(on: On, options: WorldOptions = {}) {
   }
   let nextPid = 100
 
-  on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? HOME : undefined }))
+  on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? HOME : options.env?.[e.name] }))
   on('fs.read', (_$, e) => {
     if (e.path.startsWith(`${HOME}/.glyphh/`)) {
       const text = glyphh.get(e.path)
@@ -104,7 +122,13 @@ export function world(on: On, options: WorldOptions = {}) {
       overlays.find(o => String(o.pid) === argv[2])?.end('term')
       return { value: done() }
     }
-    if (argv[1] === 'screen') return { value: done('{"x":0,"y":0,"w":1440,"h":900}\n') }
+    if (argv[1] === 'screen') return { value: done(`${JSON.stringify(SCREEN)}\n`) }
+    if (argv[1] === 'apps') return { value: done(`${JSON.stringify({ ancestors: options.ancestors ?? [CLAUDE_APP] })}\n`) }
+    if (argv[1] === 'window') {
+      windowAsks.push(JSON.parse(e.init?.stdin ?? '{}'))
+      const found = options.noWindow ? { found: false, ...SCREEN } : { found: true, id: CLAUDE_WINDOW.id, ...CLAUDE_WINDOW.frame }
+      return { value: done(`${JSON.stringify(found)}\n`) }
+    }
     return { value: done('', 1, `unknown ${cmd}`) }
   })
   on('process.spawn', async function* (_$, e) {
@@ -188,7 +212,7 @@ export function world(on: On, options: WorldOptions = {}) {
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: 'ok' } as never }))
-  return { ran, mcp, browsed, copied, toasts, asked, commands, tools, files, overlays, page, glyphh, server, writes }
+  return { ran, mcp, browsed, copied, toasts, asked, commands, tools, files, overlays, windowAsks, page, glyphh, server, writes }
 }
 
 export const startSession = ($: Engine) => $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })

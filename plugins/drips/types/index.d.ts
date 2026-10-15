@@ -1,8 +1,10 @@
 /** A saved recipe, as `/drip save <name> <recipe>` and the Drips page keep it. */
 export type CustomDrip = { name: string; recipe: string }
 
-/** Where effects play: the /config row `display`. */
-export type Display = 'claude-window' | 'fullscreen'
+/** Where effects play: the /config row `display`. claude-window: the native
+ *  overlay over the window Claude runs in; fullscreen: the native overlay over
+ *  the whole screen; browser-pane: the Drips page in Claude's Browser pane. */
+export type Display = 'claude-window' | 'fullscreen' | 'browser-pane'
 
 /** The running Drips page helper: where it listens and its token, kept in
  *  the session's memory (never on disk) so a reload of the mod finds it again. */

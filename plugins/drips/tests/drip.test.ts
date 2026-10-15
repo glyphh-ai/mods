@@ -4,7 +4,8 @@ import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
 import { BUILTIN_EFFECT_LIST } from '../hooks/drips/effects.ts'
 import { PERSISTENT_CAP_MS, PREVIEW_MAX_MS } from '../hooks/drips/manager.ts'
 import { NODE_MISSING } from '../hooks/drips/node.ts'
-import { T0, callTool, endTurn, runCommand, startSession, world, type WorldOptions } from './engine.ts'
+import { CLAUDE_DESKTOP } from '../hooks/drips/target.ts'
+import { CLAUDE_APP, CLAUDE_WINDOW, SCREEN, T0, callTool, endTurn, runCommand, startSession, world, type WorldOptions } from './engine.ts'
 import { PREVIEW } from './glyphh.ts'
 import { PRO } from './licences.ts'
 
@@ -13,6 +14,8 @@ const NOT_IN_PLAN = 'Drips is not in your Free plan. Upgrade in /drips.'
 const ADD_IT = 'Drips is an add-on ($2/month per seat on Pro). Add it in /drips.'
 const EXPIRED = 'Your Glyphh licence has expired: /drips signin to sign in again.'
 const SAVES_FULL = 'Your Free plan allows 2 saved drips. Pro lifts it: Upgrade in /drips.'
+const MISSED = "Drips could not find Claude's window: effects play over the screen under the pointer."
+const PANE = { options: { display: 'browser-pane' } }
 
 async function started($: Engine, on: On, store: Record<string, unknown> = {}, options: WorldOptions = {}) {
   mock.store(on, store)
@@ -29,14 +32,85 @@ async function until(clock: { advance(ms: number): Promise<unknown> }, done: () 
   for (let i = 0; i < 200 && !done(); i++) await clock.advance(0)
 }
 
-describe("/drip in Claude's window (the default)", () => {
+describe("/drip over Claude's window (the default)", () => {
   test('the commands and tools are registered at the start', async ($, on) => {
     const { commands, tools } = await started($, on)
     expect(commands).toEqual(['drip', 'drips'])
     expect(tools).toEqual(['play_drip', 'list_drips'])
   })
 
-  test('the first play opens the Drips page in the Browser pane, then plays there, sized to it', async ($, on) => {
+  test("in the desktop app: the overlay is built once, finds the Claude app's largest window and follows it", async ($, on) => {
+    const { run, clock, ran, overlays, windowAsks, page } = await started($, on, {}, { noNode: true })
+    expect(await run('drip', 'confetti')).toBe('drip: confetti')
+    await until(clock, () => overlays.length > 0)
+    expect(windowAsks).toEqual([{ v: 2, target: { surface: 'desktop', bundleId: CLAUDE_DESKTOP, pid: CLAUDE_APP.pid, pick: 'largest' } }])
+    expect(overlays[0]!.request).toMatchObject({ v: 2, frame: CLAUDE_WINDOW.frame, layer: 'window', follow: CLAUDE_WINDOW.id, closeAfterMs: 8000 })
+    expect(overlays[0]!.request.html).toContain('width:1325px;height:1138px')
+    await run('drip', 'hearts')
+    await until(clock, () => overlays.length > 1)
+    expect(ran.filter(a => a[0] === '/usr/bin/swiftc')).toHaveLength(1)
+    expect(ran.filter(a => a[1] === 'apps')).toHaveLength(1) // the ancestors are asked once a load
+    expect(windowAsks).toHaveLength(2) // the window, each effect: it may have moved
+    expect(page.played).toEqual([]) // no page, and no Node needed
+  })
+
+  test("in a terminal: the frontmost window of the terminal hosting Claude Code", async ($, on) => {
+    const ghostty = { pid: 812, bundleId: 'com.mitchellh.ghostty', regular: true }
+    const { run, clock, overlays, windowAsks } = await started($, on, {}, { surfaces: ['terminal'], ancestors: [ghostty] })
+    await run('drip', 'stars')
+    await until(clock, () => overlays.length > 0)
+    expect(windowAsks).toEqual([{ v: 2, target: { surface: 'terminal', bundleId: 'com.mitchellh.ghostty', pid: 812, pick: 'frontmost' } }])
+  })
+
+  test('in a terminal under tmux: the terminal the environment names', async ($, on) => {
+    const env = { TERM_PROGRAM: 'tmux', __CFBundleIdentifier: 'com.googlecode.iterm2' }
+    const { run, clock, overlays, windowAsks } = await started($, on, {}, { surfaces: ['terminal'], ancestors: [], env })
+    await run('drip', 'stars')
+    await until(clock, () => overlays.length > 0)
+    expect(windowAsks).toEqual([{ v: 2, target: { surface: 'terminal', bundleId: 'com.googlecode.iterm2', pid: null, pick: 'frontmost' } }])
+  })
+
+  test('no window found: over the screen under the pointer, said once', async ($, on) => {
+    const { run, clock, overlays, toasts } = await started($, on, {}, { noWindow: true })
+    await run('drip', 'confetti')
+    await until(clock, () => overlays.length > 0)
+    await run('drip', 'hearts')
+    await until(clock, () => overlays.length > 1)
+    expect(overlays[0]!.request).toMatchObject({ frame: SCREEN, layer: 'window', follow: null })
+    expect(toasts).toEqual([MISSED])
+  })
+
+  test('nothing names a window (a terminal not known, no app above it): over the screen under the pointer', async ($, on) => {
+    const { run, clock, overlays, windowAsks, toasts } = await started($, on, {}, { surfaces: ['terminal'], ancestors: [] })
+    await run('drip', 'confetti')
+    await until(clock, () => overlays.length > 0)
+    expect(windowAsks).toEqual([])
+    expect(overlays[0]!.request).toMatchObject({ frame: SCREEN, layer: 'window', follow: null })
+    expect(toasts).toEqual([MISSED])
+  })
+
+  test('a persistent effect follows the window until fired again or stopped', async ($, on) => {
+    const { run, ran, overlays } = await started($, on)
+    await run('drip', '-1 aurora')
+    expect(overlays[0]!.request).toMatchObject({ layer: 'window', follow: CLAUDE_WINDOW.id, closeAfterMs: PERSISTENT_CAP_MS })
+    await run('drip', 'stop')
+    expect(ran).toContainEqual(['/bin/kill', '-TERM', String(overlays[0]!.pid)])
+  })
+
+  test('without swiftc it plays in the Drips page, and says so once', async ($, on) => {
+    const { run, clock, toasts, page, overlays } = await started($, on, {}, { noSwift: true })
+    await run('drip', 'confetti')
+    await until(clock, () => page.played.length > 0)
+    await run('drip', 'hearts')
+    await until(clock, () => page.played.length > 1)
+    expect(toasts).toEqual(["Drips' overlay needs Swift: install the Xcode Command Line Tools (xcode-select --install). Playing in the Drips page instead."])
+    expect(page.played.map(p => p.effect)).toEqual(['confetti', 'hearts'])
+    expect(overlays).toEqual([])
+  })
+})
+
+describe('/drip in the Drips page (browser-pane)', () => {
+  test('the first play opens the Drips page in the Browser pane, then plays there, sized to it', PANE, async ($, on) => {
     const { run, clock, page, mcp } = await started($, on)
     expect(await run('drip', 'confetti')).toBe('drip: confetti')
     await until(clock, () => mcp.includes('Claude_Browser.preview_start') && page.played.length > 0 && page.library.length > 0)
@@ -44,10 +118,10 @@ describe("/drip in Claude's window (the default)", () => {
     expect(page.played).toHaveLength(1)
     expect(page.played[0]).toMatchObject({ kind: 'one-shot', effect: 'confetti', closeAfterMs: 8000 })
     expect(page.played[0]!.html).toContain('width:1000px;height:700px')
-    expect(page.library.at(-1)?.display).toBe('claude-window')
+    expect(page.library.at(-1)?.display).toBe('browser-pane')
   })
 
-  test('counted effects arrive 1500 ms apart', async ($, on) => {
+  test('counted effects arrive 1500 ms apart', PANE, async ($, on) => {
     const { run, clock, page } = await started($, on)
     expect(await run('drip', '2 hearts stars')).toBe('drip: hearts + stars x2')
     await until(clock, () => page.played.length > 0)
@@ -58,7 +132,7 @@ describe("/drip in Claude's window (the default)", () => {
     expect(page.played.map(p => p.effect)).toEqual(['hearts', 'stars', 'hearts', 'stars'])
   })
 
-  test('a persistent effect plays until fired again; /drip stop ends them all', async ($, on) => {
+  test('a persistent effect plays until fired again; /drip stop ends them all', PANE, async ($, on) => {
     const { run, page } = await started($, on)
     expect(await run('drip', '-1 aurora')).toBe('drip: aurora constant')
     expect(page.played[0]).toMatchObject({ kind: 'loop', effect: 'aurora', closeAfterMs: PERSISTENT_CAP_MS })
@@ -70,7 +144,7 @@ describe("/drip in Claude's window (the default)", () => {
     expect(page.stops).toBe(1)
   })
 
-  test('save, list and delete keep recipes in the store and show them on the page', async ($, on) => {
+  test('save, list and delete keep recipes in the store and show them on the page', PANE, async ($, on) => {
     const { run, page, clock } = await started($, on)
     expect(await run('drip', 'save Party 3 hearts')).toBe('saved drip "party" → 3 hearts')
     expect(await run('drip', 'list')).toContain('custom: party → 3 hearts')
@@ -82,21 +156,21 @@ describe("/drip in Claude's window (the default)", () => {
     expect(page.library.at(-1)?.drips).toEqual([])
   })
 
-  test('where the app refuses the Browser pane, Claude is asked to open the page and the play waits', async ($, on) => {
+  test('where the app refuses the Browser pane, Claude is asked to open the page and the play waits', PANE, async ($, on) => {
     const { run, clock, asked, page } = await started($, on, {}, { browserRefuses: true })
     expect(await run('drip', '-1 aurora')).toBe('/drip: The Drips page is opening in the browser pane: play again once it shows.')
     await until(clock, () => asked.length > 0)
     expect(asked).toEqual(['Open this page in the browser pane (it opens once): http://127.0.0.1:' + page.alive!.port + '/?k=once'])
   })
 
-  test('a page that never connects: the play says so', async ($, on) => {
+  test('a page that never connects: the play says so', PANE, async ($, on) => {
     const { run, clock } = await started($, on, {}, { pageNeverOpens: true })
     const said = run('drip', '-1 aurora')
     await clock.advance(10_000)
     expect(await said).toBe('/drip: The Drips page did not open: run /drips, then play again.')
   })
 
-  test('without Node the window cannot play: it says what to install', async ($, on) => {
+  test('without Node the page cannot play: it says what to install', PANE, async ($, on) => {
     const { run } = await started($, on, {}, { noNode: true })
     expect(await run('drip', '-1 aurora')).toBe(`/drip: ${NODE_MISSING}`)
     expect(await run('drips')).toBe(NODE_MISSING)
@@ -153,13 +227,13 @@ describe('/drips, the page', () => {
 describe('fullscreen', () => {
   const FULL = { options: { display: 'fullscreen' } }
 
-  test('builds the overlay with swiftc once, then plays each effect in its own overlay over the screen', FULL, async ($, on) => {
+  test('builds the overlay with swiftc once, then plays each effect in its own overlay over the screen, above everything', FULL, async ($, on) => {
     const { run, clock, ran, overlays, page } = await started($, on)
     expect(await run('drip', 'confetti')).toBe('drip: confetti')
     await until(clock, () => overlays.length > 0)
     expect(ran.filter(a => a[0] === '/usr/bin/swiftc')).toHaveLength(1)
     expect(overlays).toHaveLength(1)
-    expect(overlays[0]!.request).toMatchObject({ v: 1, screen: { x: 0, y: 0, w: 1440, h: 900 }, closeAfterMs: 8000 })
+    expect(overlays[0]!.request).toMatchObject({ v: 2, frame: SCREEN, layer: 'screen', follow: null, closeAfterMs: 8000 })
     expect(overlays[0]!.request.html).toContain('width:1440px;height:900px')
     await run('drip', 'hearts')
     await until(clock, () => overlays.length > 1)
@@ -189,13 +263,13 @@ describe('fullscreen', () => {
     expect(overlays).toHaveLength(2)
   })
 
-  test("without swiftc it plays in Claude's window, and says so once", FULL, async ($, on) => {
+  test('without swiftc it plays in the Drips page, and says so once', FULL, async ($, on) => {
     const { run, clock, toasts, page, overlays } = await started($, on, {}, { noSwift: true })
     await run('drip', 'confetti')
     await until(clock, () => page.played.length > 0)
     await run('drip', 'hearts')
     await until(clock, () => page.played.length > 1)
-    expect(toasts).toEqual(["Fullscreen effects need Swift: install the Xcode Command Line Tools (xcode-select --install). Playing in Claude's window instead."])
+    expect(toasts).toEqual(["Drips' overlay needs Swift: install the Xcode Command Line Tools (xcode-select --install). Playing in the Drips page instead."])
     expect(page.played.map(p => p.effect)).toEqual(['confetti', 'hearts'])
     expect(overlays).toEqual([])
   })
@@ -212,7 +286,7 @@ describe('fullscreen', () => {
 })
 
 describe('the tools Claude calls', () => {
-  test('play_drip plays a recipe or stops; it does not save, delete or list', async ($, on) => {
+  test('play_drip plays a recipe or stops; it does not save, delete or list', PANE, async ($, on) => {
     const { clock, page } = await started($, on)
     expect(await callTool($, 'mcp__drips__play_drip', { recipe: 'fireworks' })).toEqual({ status: 'drip: fireworks' })
     await until(clock, () => page.played.length > 0)
@@ -221,7 +295,7 @@ describe('the tools Claude calls', () => {
     expect(await callTool($, 'mcp__drips__play_drip', { recipe: 'save x confetti' })).toEqual({ error: 'play_drip takes a recipe or "stop"; list_drips lists the effects.' })
   })
 
-  test("play_drip's failure is its result", async ($, on) => {
+  test("play_drip's failure is its result", PANE, async ($, on) => {
     await started($, on, {}, { browserRefuses: true })
     expect(await callTool($, 'mcp__drips__play_drip', { recipe: '-1 aurora' })).toEqual({ error: 'The Drips page is opening in the browser pane: play again once it shows.' })
   })
@@ -305,15 +379,25 @@ describe('the Glyphh plan', () => {
     expect(page.licence.at(-1)).toMatchObject({ kind: 'active', plan: 'Free', limits: { custom_drips: 2, fullscreen: 0 }, refusals: { custom_drips: SAVES_FULL } })
   })
 
-  test('Free with fullscreen set: effects play in Claude\'s window, said once', { options: { display: 'fullscreen' } }, async ($, on) => {
+  test("Free with fullscreen set: effects play over Claude's window, said once", { options: { display: 'fullscreen' } }, async ($, on) => {
     const { run, clock, overlays, page, toasts } = await started($, on, {}, { account: 'free' })
     await until(clock, () => false)
     await run('drip', 'confetti')
-    await until(clock, () => page.played.length > 0)
+    await until(clock, () => overlays.length > 0)
     await run('drip', 'hearts')
-    await until(clock, () => page.played.length > 1)
-    expect(overlays).toEqual([])
-    expect(toasts.filter(t => t.startsWith('Fullscreen is not in your Free plan. Pro has it: Upgrade in /drips. Playing in Claude\'s window instead.'))).toHaveLength(1)
+    await until(clock, () => overlays.length > 1)
+    expect(overlays.map(o => o.request.layer)).toEqual(['window', 'window'])
+    expect(page.played).toEqual([])
+    expect(toasts.filter(t => t === "Fullscreen is not in your Free plan. Pro has it: Upgrade in /drips. Playing over Claude's window instead.")).toHaveLength(1)
+  })
+
+  test('Free plays over Claude\'s window: the window is not a plan limit', async ($, on) => {
+    const { run, clock, overlays, toasts } = await started($, on, {}, { account: 'free' })
+    await until(clock, () => false)
+    await run('drip', 'confetti')
+    await until(clock, () => overlays.length > 0)
+    expect(overlays[0]!.request).toMatchObject({ layer: 'window', follow: CLAUDE_WINDOW.id })
+    expect(toasts).toEqual([])
   })
 
   test("the page's Upgrade at a limit opens checkout for the plan that lifts it; Sign in starts the device flow", async ($, on) => {
@@ -390,14 +474,15 @@ describe('the Glyphh plan', () => {
 })
 
 describe('the fun hooks', () => {
-  const FUN = { options: { matrix_while_tools: true, confetti_after_long_turn: true } }
+  const FUN = { options: { matrix_while_tools: true, confetti_after_long_turn: true, display: 'browser-pane' } }
 
   test('off unless set: a tool call and a long turn play nothing', async ($, on) => {
-    const { page, clock } = await started($, on)
+    const { page, clock, overlays } = await started($, on)
     expect(await callTool($, 'Bash', { command: 'ls' })).toEqual({ stdout: 'ok' })
     await endTurn($, 10 * 60_000)
     await clock.advance(5000)
     expect(page.played).toEqual([])
+    expect(overlays).toEqual([])
   })
 
   test('a matrix while a tool runs, gone a moment after it; confetti after a turn over two minutes', FUN, async ($, on) => {

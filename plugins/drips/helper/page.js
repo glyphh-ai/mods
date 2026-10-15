@@ -48,7 +48,7 @@ addEventListener("resize", () => {
 let library = { drips: [], effects: [], display: "claude-window" }
 let editing = null // the name of the drip open in the editor; "" for a new one
 
-const PLACES = { "claude-window": "Plays in Claude's window", fullscreen: "Plays fullscreen" }
+const PLACES = { "claude-window": "Plays over Claude's window", fullscreen: "Plays fullscreen", "browser-pane": "Plays in this page" }
 
 function drawList() {
   const list = $("list")

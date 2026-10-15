@@ -1,6 +1,6 @@
-// Effects in Claude's window: the Drips page, a local page in the desktop
-// app's Browser pane, plays them in sandboxed frames over itself (the Glyphh
-// app's web runner). Opening the page: in the Browser pane by
+// Effects in the Drips page (display browser-pane, and every preview): the
+// page, a local page in the desktop app's Browser pane, plays them in
+// sandboxed frames over itself (the Glyphh app's web runner). Opening the page: in the Browser pane by
 // Claude_Browser's preview_start; where the app refuses that call, Claude is
 // asked to open it, with a one-time address only; outside the desktop app,
 // in the person's own browser. Works on PageDeps, closures over `$` that
