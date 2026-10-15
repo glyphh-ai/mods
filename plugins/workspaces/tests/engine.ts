@@ -4,6 +4,7 @@
 import type { CommandRunInput, On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
+import type { PageSettings } from '../types'
 import { done, mcpText } from './fakes.ts'
 
 export const T0 = Date.parse('2026-10-14T09:00:00Z')
@@ -36,7 +37,7 @@ export type WorldOptions = {
 /** The layout page's helper as the mod sees it: what it was sent, and a way to make it speak. */
 export type FakeHelper = {
   started: string[][]
-  layouts: { layouts: { name: string; cells: { page?: string }[] }[]; active: string; library: { workspaces: { slug: string }[]; favorites: unknown[]; choices: { models: string[]; efforts: string[] } } }[]
+  layouts: { layouts: { name: string; cells: { page?: string }[] }[]; active: string; library: { workspaces: { slug: string }[]; favorites: unknown[]; choices: { models: string[]; efforts: string[] } }; settings: PageSettings }[]
   /** The editor views the page was asked to show. */
   shown: string[]
   /** The environment the helper was started with. */

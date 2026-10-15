@@ -34,6 +34,9 @@ export type Entry = { slug: string; file: WorkspaceFile }
  *  menu's model row's values, and /effort's levels. */
 export type Choices = { models: string[]; efforts: string[] }
 
+/** The mod's settings (rows of Claude's /config menu), as the page reads them. */
+export type PageSettings = { home: 'wall' | 'last workspace'; dock: boolean; dockAutoHide: boolean; iconsPerPage: number }
+
 /** The running layout page helper: where it listens and its token, kept in
  *  the session's memory (never on disk) so a reload of the mod finds it again. */
 export type HelperInfo = { port: number; token: string }

@@ -1,6 +1,6 @@
 // The layout page's helper as the mod sees it: the layouts it is sent, the
 // lines it prints, and the requests the mod makes of it (with the token).
-import type { Choices, Entry, Favorite, Panel } from '../../types'
+import type { Choices, Entry, Favorite, PageSettings, Panel } from '../../types'
 
 /** A cell as the layout page draws it; a browser cell's live page is keyed
  *  by its favourite, so one favourite is one page in every layout. */
@@ -62,7 +62,7 @@ export type EditorView = 'workspaces' | 'favorites'
 
 /** The requests the mod makes of a running helper. */
 export type Link = {
-  setLayouts(layouts: ViewerLayout[], active: string, library: Library): Promise<void>
+  setLayouts(layouts: ViewerLayout[], active: string, library: Library, settings: PageSettings): Promise<void>
   /** Shows the open page's workspace editor. */
   show(view: EditorView): Promise<void>
   /** Whether the layout page is open somewhere (it listens for updates). */
@@ -90,7 +90,7 @@ export function linkTo(fetch: Fetch, port: number, token: string): Link {
     return JSON.parse(res.text) as Record<string, unknown>
   }
   return {
-    setLayouts: async (layouts, active, library) => void (await ask('/api/layouts', { layouts, active, library })),
+    setLayouts: async (layouts, active, library, settings) => void (await ask('/api/layouts', { layouts, active, library, settings })),
     show: async view => void (await ask('/api/show', { view })),
     isOpen: async () => Number((await ask('/api/state')).open) > 0,
     pageUrl: async view => `${base}/?k=${String((await ask('/api/key', {})).key)}${view ? `&view=${view}` : ''}`,
@@ -103,7 +103,7 @@ export function linkTo(fetch: Fetch, port: number, token: string): Link {
 }
 
 /** The helper's files: a change to any of them makes a new helper. */
-export const HELPER_FILES = ['chrome.mjs', 'gate.mjs', 'grid.mjs', 'input.mjs', 'library.mjs', 'popups.mjs', 'viewer.mjs', 'viewer.html', 'workspaces.js', 'workspaces.css', 'debug/probe.html']
+export const HELPER_FILES = ['chrome.mjs', 'echo-model.mjs', 'echo.css', 'echo.js', 'favicon.mjs', 'gate.mjs', 'grid.mjs', 'input.mjs', 'library.mjs', 'popups.mjs', 'viewer.mjs', 'viewer.html', 'workspaces.js', 'workspaces.css', 'debug/probe.html']
 
 /** A version for the helper's code: a digest of its files' texts. */
 export async function versionOf(texts: string[]): Promise<string> {

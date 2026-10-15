@@ -5,7 +5,7 @@ import type { Register } from 'claude-code'
 import { licensing } from './licence/hooks.tsx'
 import { workspaces } from './workspaces/hooks.tsx'
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
   licensing(on)
-  workspaces(on)
+  workspaces(on, options)
 }

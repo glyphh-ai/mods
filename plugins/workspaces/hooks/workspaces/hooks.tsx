@@ -6,7 +6,7 @@
 // code is the same. Its workspace editor writes ~/.glyphh; the mod reads it
 // again when told.
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, On, Timer } from 'claude-code'
+import type { EngineInterface, On, PluginOptions, Timer } from 'claude-code'
 
 import type { Choices, Entry, Favorite, HelperInfo, Requirements } from '../../types'
 import { INITIAL, refusal } from '../licence/access.ts'
@@ -14,6 +14,7 @@ import { findFile, openPage, showFile, togglePane, type App, type MenuPane } fro
 import { findWorkspace, listText } from './dip.ts'
 import { load, patchWorkspace, type Disk } from './files.ts'
 import { EFFORTS } from './model.ts'
+import { settingsOf } from './settings.ts'
 import { findChrome, findNode, missingText, type Probe } from './requirements.ts'
 import { push, showLayout, switchTo, type Switcher } from './stream.ts'
 import { HELPER_FILES, linkTo, versionOf, type Link, type ViewerMessage } from './viewer.ts'
@@ -111,8 +112,12 @@ async function reload($: EngineInterface): Promise<void> {
   await update($, favorites, () => library.favorites)
 }
 
+/** The mod's settings as this load of the module got them (a change reloads it). */
+let pageSettings = settingsOf({})
+
 function switcher($: EngineInterface): Switcher {
   return {
+    settings: pageSettings,
     app: app($),
     entries: { get: () => read($, entries), set: async fn => void (await update($, entries, fn)) },
     favorites: { get: () => read($, favorites), set: async fn => void (await update($, favorites, fn)) },
@@ -291,7 +296,8 @@ async function runPaneCommand($: EngineInterface, which: PaneCommand, arg: strin
 }
 
 
-export function workspaces(on: On) {
+export function workspaces(on: On, options: PluginOptions) {
+  pageSettings = settingsOf(options)
   on('session.start', async ($, e, next) => {
     try {
       await reload($)
@@ -304,7 +310,9 @@ export function workspaces(on: On) {
     // The models the editor offers: the /config menu's model row, as this build has it.
     const modelRow = (await $.config.list().catch(() => [])).find(r => r.key === 'model')
     await update($, choices, (): Choices => ({ models: [...(modelRow?.options ?? [])], efforts: EFFORTS }))
-    await reattach($, await helperVersion($)) // a reload keeps the page up
+    // A reload keeps the page up, and tells it what changed (a setting reloads the module).
+    const kept = await reattach($, await helperVersion($))
+    if (kept) await push(switcher($), kept, (await read($, active)) ?? '').catch(() => undefined)
     await registerCommands($)
     return next(e)
   })

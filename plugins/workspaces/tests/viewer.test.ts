@@ -58,7 +58,7 @@ describe('the layout page', () => {
       4100,
       'tok',
     )
-    await link.setLayouts([], 'A', { workspaces: [], favorites: [], choices: { models: [], efforts: [] } })
+    await link.setLayouts([], 'A', { workspaces: [], favorites: [], choices: { models: [], efforts: [] } }, { home: 'wall', dock: true, dockAutoHide: false, iconsPerPage: 24 })
     expect(await link.isOpen()).toBe(true)
     expect(await link.pageUrl()).toBe('http://127.0.0.1:4100/?k=k1')
     expect(await link.pageUrl('workspaces')).toBe('http://127.0.0.1:4100/?k=k1&view=workspaces')
@@ -81,7 +81,7 @@ describe('the layout page', () => {
       'POST http://127.0.0.1:4100/api/quit',
     ])
     expect(asked.every(a => a.init.headers['X-Token'] === 'tok')).toBe(true)
-    expect(asked[0]?.init.body).toBe('{"layouts":[],"active":"A","library":{"workspaces":[],"favorites":[],"choices":{"models":[],"efforts":[]}}}')
+    expect(asked[0]?.init.body).toBe('{"layouts":[],"active":"A","library":{"workspaces":[],"favorites":[],"choices":{"models":[],"efforts":[]}},"settings":{"home":"wall","dock":true,"dockAutoHide":false,"iconsPerPage":24}}')
     expect(asked[4]?.init.body).toBe('{"view":"favorites"}')
     ok = false
     await expect(link.isOpen()).rejects.toThrow('the layout page answered /api/state with an error')
