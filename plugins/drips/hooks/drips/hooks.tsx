@@ -18,7 +18,7 @@ import { createManager, customEffects, type Host, type Manager } from './manager
 import { ancestorsOf, eventsOf, nativeHost, prepareOverlay, type NativeDeps, type Placement, type Prepared } from './native.ts'
 import { findNode, NODE_MISSING } from './node.ts'
 import { settingsOf, type Settings } from './settings.ts'
-import { selectTarget, TERMINAL_ENV_NAMES, type Target, type TerminalEnv } from './target.ts'
+import { selectTarget, type Target, type TerminalEnv } from './target.ts'
 import { showPage, shownText, windowHost, type PageDeps, type WindowHost } from './window.ts'
 
 const account = atom({ plugin: 'drips', key: 'account' } as const, INITIAL)
@@ -115,8 +115,11 @@ const modOf = ($: EngineInterface) => (mod ??= build($))
  *  hosts this session (its ancestors, as the overlay sees them, and the
  *  environment). */
 async function findTarget($: EngineInterface, binary: string): Promise<Target | null> {
-  const env: TerminalEnv = {}
-  for (const name of TERMINAL_ENV_NAMES) env[name] = await $.env.get(name)
+  const env: TerminalEnv = {
+    TERM_PROGRAM: await $.env.get('TERM_PROGRAM'),
+    __CFBundleIdentifier: await $.env.get('__CFBundleIdentifier'),
+    TERM: await $.env.get('TERM'),
+  }
   const isDesktop = (await $.session.surfaces()).includes('desktop')
   return selectTarget({ isDesktop, env, ancestors: await ancestorsOf(nativeDeps($), binary) })
 }

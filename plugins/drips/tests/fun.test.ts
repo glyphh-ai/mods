@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { LONG_TURN_MS, MATRIX_LINGER_MS, createFun } from '../hooks/drips/fun.ts'
-import { DEFAULT_SETTINGS, settingsOf, type Settings } from '../hooks/drips/settings.ts'
+import { DEFAULT_SETTINGS, displayOf, settingsOf, type Settings } from '../hooks/drips/settings.ts'
 import { flush } from './fakes.ts'
 
 function world(settings: Partial<Settings>, opts: { allowed?: boolean; theirs?: boolean } = {}) {
@@ -110,5 +110,16 @@ describe('the /config rows', () => {
       matrixWhileTools: true,
     })
     expect(settingsOf({ display: 'sideways', confetti_after_long_turn: 'yes' })).toEqual(DEFAULT_SETTINGS)
+  })
+
+  test('display: claude-window (the default), fullscreen or browser-pane; anything else is the default', () => {
+    expect(DEFAULT_SETTINGS.display).toBe('claude-window')
+    for (const d of ['claude-window', 'fullscreen', 'browser-pane'] as const) expect(displayOf(d)).toBe(d)
+    expect(displayOf(undefined)).toBe('claude-window')
+    expect(displayOf('window')).toBe('claude-window')
+  })
+
+  test("a claude-window stored before 1.1.0 (then the Browser pane's page) stays claude-window: over Claude's window, now natively", () => {
+    expect(settingsOf({ display: 'claude-window' }).display).toBe('claude-window')
   })
 })

@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { MAC_ONLY, SWIFT_MISSING, eventsOf, fullscreenHost, prepareOverlay, type FullscreenDeps, type RunResult } from '../hooks/drips/fullscreen.ts'
+import { MAC_ONLY, SWIFT_MISSING, ancestorsOf, eventsOf, nativeHost, prepareOverlay, type NativeDeps, type Placement, type RunResult } from '../hooks/drips/native.ts'
 import { binaryPath, digestOf, type OverlayEvent } from '../hooks/drips/overlay.ts'
+import type { Target } from '../hooks/drips/target.ts'
 import { flush } from './fakes.ts'
 
 const SOURCE = 'import AppKit'
@@ -32,10 +33,19 @@ function world(opts: { platform?: string; built?: boolean; xcode?: boolean; swif
   const spawned: { argv: readonly string[]; input: string }[] = []
   const children: ReturnType<typeof child>[] = []
   const files = new Set<string>()
-  const w = { screen: '{"x":0,"y":0,"w":1000,"h":500}', screenFails: false }
-  const d: FullscreenDeps = {
-    run: async (argv, _timeout) => {
+  const w = {
+    screen: '{"x":0,"y":0,"w":1000,"h":500}',
+    screenFails: false,
+    window: '{"found":true,"id":79026,"x":799,"y":298,"w":1325,"h":1138}',
+    windowFails: false,
+    apps: '{"ancestors":[{"pid":48036,"bundleId":"com.anthropic.claudefordesktop","regular":true}]}',
+    appsFail: false,
+  }
+  const stdins: (string | undefined)[] = []
+  const d: NativeDeps = {
+    run: async (argv, runOpts) => {
       ran.push([...argv])
+      stdins.push(runOpts?.stdin)
       const [cmd] = argv
       if (cmd === 'uname') return ok(`${opts.platform ?? 'Darwin'}\n`)
       if (cmd === 'xcode-select') return opts.xcode === false ? bad('no developer tools') : ok('/Library/Developer/CommandLineTools\n')
@@ -47,6 +57,8 @@ function world(opts: { platform?: string; built?: boolean; xcode?: boolean; swif
         return ok()
       }
       if (argv[1] === 'screen') return w.screenFails ? bad() : ok(w.screen)
+      if (argv[1] === 'window') return w.windowFails ? bad() : ok(w.window)
+      if (argv[1] === 'apps') return w.appsFail ? bad() : ok(w.apps)
       return null
     },
     spawn: (argv, input) => {
@@ -60,7 +72,7 @@ function world(opts: { platform?: string; built?: boolean; xcode?: boolean; swif
     home: async () => opts.home ?? '/Users/t',
     root: '/mods/drips',
   }
-  return { d, ran, spawned, children, files, w }
+  return { d, ran, stdins, spawned, children, files, w }
 }
 
 describe('preparing the overlay', () => {
@@ -82,22 +94,25 @@ describe('preparing the overlay', () => {
     expect(await prepareOverlay(noTools.d)).toEqual({ missing: SWIFT_MISSING })
     expect(noTools.ran.some(a => a[0] === 'xcrun')).toBe(false) // never the shim that offers an install
     expect(await prepareOverlay(world({ swiftc: false }).d)).toEqual({ missing: SWIFT_MISSING })
-    expect(await prepareOverlay(world({ compiles: false }).d)).toEqual({ missing: 'The fullscreen overlay did not build: error: no such module WebKit' })
-    expect(await prepareOverlay(world({ home: '' }).d)).toEqual({ missing: 'Fullscreen effects need HOME to be set.' })
+    expect(await prepareOverlay(world({ compiles: false }).d)).toEqual({ missing: "Drips' overlay did not build: error: no such module WebKit" })
+    expect(await prepareOverlay(world({ home: '' }).d)).toEqual({ missing: "Drips' overlay needs HOME to be set." })
   })
 })
 
+const FULL: Placement = { kind: 'fullscreen' }
+const TARGET: Target = { surface: 'desktop', bundleId: 'com.anthropic.claudefordesktop', pid: 48036, pick: 'largest' }
+
 describe('the fullscreen host', () => {
-  test('a one-shot: the screen under the pointer, then one overlay sized to it', async () => {
+  test('a one-shot: the screen under the pointer, then one overlay sized to it, above everything', async () => {
     const { d, spawned, children } = world()
-    const host = fullscreenHost(d, '/bin/ov')
+    const host = nativeHost(d, '/bin/ov', FULL)
     const played = host.oneShot('confetti', 0.5)
     await flush()
     children[0]!.push({ t: 'shown', pid: 77 })
     await played
     expect(spawned[0]!.argv).toEqual(['/bin/ov', 'play'])
     const req = JSON.parse(spawned[0]!.input)
-    expect(req).toMatchObject({ v: 1, screen: { x: 0, y: 0, w: 1000, h: 500 }, closeAfterMs: 8000 })
+    expect(req).toMatchObject({ v: 2, frame: { x: 0, y: 0, w: 1000, h: 500 }, closeAfterMs: 8000, layer: 'screen', follow: null })
     expect(req.html).toContain('width:1000px;height:500px')
     expect(req.html).toContain('<body style="opacity:0.5">')
     children[0]!.push({ t: 'closed', why: 'signal' })
@@ -106,7 +121,7 @@ describe('the fullscreen host', () => {
 
   test('a persistent effect: its bound sent, ended by SIGTERM to its pid, told when it ends by itself', async () => {
     const { d, spawned, children, ran } = world()
-    const host = fullscreenHost(d, '/bin/ov')
+    const host = nativeHost(d, '/bin/ov', FULL)
     let ended = 0
     const starting = host.persistent('aurora', 0.5, 60_000, () => ended++)
     await flush()
@@ -126,15 +141,15 @@ describe('the fullscreen host', () => {
 
   test('an overlay that cannot open says why; a screen it cannot find is an error', async () => {
     const { d, children, w } = world()
-    const host = fullscreenHost(d, '/bin/ov')
+    const host = nativeHost(d, '/bin/ov', FULL)
     const played = host.oneShot('hearts', -1)
     await flush()
     children[0]!.push({ t: 'error', message: 'not a play request' })
-    await expect(played).rejects.toThrow('The fullscreen overlay did not open: not a play request')
+    await expect(played).rejects.toThrow("Drips' overlay did not open: not a play request")
     const silent = host.persistent('aurora', 0.5, 1000, () => {})
     await flush()
     children[1]!.push(null)
-    await expect(silent).rejects.toThrow('The fullscreen overlay did not open')
+    await expect(silent).rejects.toThrow("Drips' overlay did not open")
     w.screenFails = true
     await expect(host.oneShot('hearts', -1)).rejects.toThrow('could not find the screen')
   })
@@ -151,5 +166,64 @@ describe('the fullscreen host', () => {
       { t: 'shown', pid: 9 },
       { t: 'closed', why: 'timeout' },
     ])
+  })
+})
+
+describe("the host over Claude's window", () => {
+  function placed(target: Target | null) {
+    let missed = 0
+    let asked = 0
+    const place: Placement = {
+      kind: 'window',
+      target: async () => (asked++, target),
+      missed: () => void missed++,
+    }
+    return { place, missed: () => missed, asked: () => asked }
+  }
+
+  async function playOnce(host: ReturnType<typeof nativeHost>, children: ReturnType<typeof world>['children']) {
+    const played = host.oneShot('confetti', -1)
+    await flush(30)
+    children.at(-1)!.push({ t: 'shown', pid: 5 })
+    await played
+  }
+
+  test('the target window found: the overlay over its frame, following it, the document sized to it', async () => {
+    const { d, spawned, children, stdins, ran } = world()
+    const p = placed(TARGET)
+    await playOnce(nativeHost(d, '/bin/ov', p.place), children)
+    expect(ran).toContainEqual(['/bin/ov', 'window'])
+    expect(JSON.parse(stdins[ran.findIndex(a => a[1] === 'window')]!)).toEqual({ v: 2, target: TARGET })
+    const req = JSON.parse(spawned[0]!.input)
+    expect(req).toMatchObject({ v: 2, frame: { x: 799, y: 298, w: 1325, h: 1138 }, layer: 'window', follow: 79026 })
+    expect(req.html).toContain('width:1325px;height:1138px')
+    expect(p.missed()).toBe(0)
+  })
+
+  test('no such window: over the screen the overlay fell back to, not following; missed is told', async () => {
+    const { d, spawned, children, w } = world()
+    w.window = '{"found":false,"x":0,"y":0,"w":1440,"h":900}'
+    const p = placed(TARGET)
+    await playOnce(nativeHost(d, '/bin/ov', p.place), children)
+    expect(JSON.parse(spawned[0]!.input)).toMatchObject({ frame: { x: 0, y: 0, w: 1440, h: 900 }, layer: 'window', follow: null })
+    expect(p.missed()).toBe(1)
+  })
+
+  test('no target, or the window command failing: over the screen under the pointer; missed is told', async () => {
+    for (const setup of [(_w: ReturnType<typeof world>['w']) => null as Target | null, (w: ReturnType<typeof world>['w']) => ((w.windowFails = true), TARGET)]) {
+      const { d, spawned, children, w, ran } = world()
+      const p = placed(setup(w))
+      await playOnce(nativeHost(d, '/bin/ov', p.place), children)
+      expect(JSON.parse(spawned[0]!.input)).toMatchObject({ frame: { x: 0, y: 0, w: 1000, h: 500 }, layer: 'window', follow: null })
+      expect(ran).toContainEqual(['/bin/ov', 'screen'])
+      expect(p.missed()).toBe(1)
+    }
+  })
+
+  test("the apps among the overlay's ancestors; none when it cannot say", async () => {
+    const { d, w } = world()
+    expect(await ancestorsOf(d, '/bin/ov')).toEqual([{ pid: 48036, bundleId: 'com.anthropic.claudefordesktop', regular: true }])
+    w.appsFail = true
+    expect(await ancestorsOf(d, '/bin/ov')).toEqual([])
   })
 })

@@ -13,7 +13,6 @@ export type Target = { surface: 'desktop' | 'terminal'; bundleId: string; pid: n
 
 /** The environment variables that name the terminal app. */
 export type TerminalEnv = { TERM_PROGRAM?: string; __CFBundleIdentifier?: string; TERM?: string }
-export const TERMINAL_ENV_NAMES = ['TERM_PROGRAM', '__CFBundleIdentifier', 'TERM'] as const
 
 /** The Claude desktop app (/Applications/Claude.app). */
 export const CLAUDE_DESKTOP = 'com.anthropic.claudefordesktop'
