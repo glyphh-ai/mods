@@ -7,7 +7,7 @@
 // /config row `display`. The Drips button sits in the hint line under the
 // prompt; pressed, a row of quick plays opens above the prompt.
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, On, PluginOptions, Timer } from 'claude-code'
+import type { EngineInterface, On, PluginOptions, RenderChildren, Timer } from 'claude-code'
 
 import type { HelperInfo } from '../../types'
 import { INITIAL, refusal } from '../unlock/access.ts'
@@ -159,6 +159,18 @@ async function hostOf($: EngineInterface, m: Mod, quiet = false): Promise<Host> 
 
 /** Why effects may not play now (not bought on this machine), or null.
  *  Bought, everything is open: no limits. */
+/** The engine's own line with the Drips button after it; pressed, it opens or closes the row above the prompt. */
+async function withButton($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0], line: RenderChildren) {
+  const { Box, Button } = $.ui.resolve(e)
+  const isOpen = await read($, bandOpen)
+  return (
+    <Box flexDirection="row" gap={2}>
+      {line}
+      <Button key="drips" label="💧 Drips" plain dimColor={!isOpen} onPress={() => update($, bandOpen, v => !v)} />
+    </Box>
+  )
+}
+
 async function refused($: EngineInterface): Promise<string | null> {
   return refusal(await read($, licence))
 }

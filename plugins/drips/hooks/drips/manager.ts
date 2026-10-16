@@ -4,7 +4,7 @@
 // stagger 1500 ms apart; a persistent (`-1`) effect fired again toggles off;
 // a preview's persistent effect is bounded to 12 s; any other persistent
 // effect to PERSISTENT_CAP_MS, so nothing runs forever.
-import { BUILTIN_EFFECTS, parseDripRecipe } from './effects.ts'
+import { BUILTIN_EFFECTS, ONE_SHOT_EFFECTS, parseDripRecipe } from './effects.ts'
 import { deleteCustom, saveCustom, type Store } from './library.ts'
 
 export const STAGGER_MS = 1500
@@ -54,6 +54,11 @@ export function customEffects(recipe: string): string[] {
     .map(p => p.toLowerCase())
 }
 
+/** What a recipe naming no effect and no saved drip is told; nothing plays. */
+export function unknownText(names: string[]): string {
+  return `No effect or saved drip is called ${names.join(', ')}. /drips list shows them.`
+}
+
 export function listText(customs: Record<string, string>): string {
   const entries = Object.entries(customs)
   const custom = entries.length ? entries.map(([name, recipe]) => `${name} → ${recipe}`).join(', ') : '(none)'
@@ -100,6 +105,8 @@ export function createManager(d: ManagerDeps) {
 
   async function executeRaw(hostOf: () => Promise<Host>, raw: string, customs: Record<string, string>, maxMs: number): Promise<string> {
     const { count, opacity, effects } = parseDripRecipe(raw, name => (customs[name] ? customEffects(customs[name]!) : null))
+    const unknown = [...new Set(effects.filter(effect => !(effect in ONE_SHOT_EFFECTS)))]
+    if (unknown.length) return unknownText(unknown)
     const host = await hostOf()
     let slot = 0
     const play = (effect: string, op: number) => {

@@ -61,8 +61,8 @@ page for you.
 
 ## The Drips button
 
-A **💧 Drips** button sits in the hint line under the prompt, in the
-terminal and in the desktop app. Press it and a row opens just above the
+A **💧 Drips** button sits by the prompt: in the terminal, in the hint line
+under it; in the desktop app, in the prompt's footer. Press it and a row opens just above the
 prompt: **fireworks**, **confetti**, **hearts**, **stars**, and **gunfight**, then your
 saved drips, then **■ Stop** while something keeps playing, and **✕** to
 close the row. A press plays the effect the way `/drips` does, where your

@@ -66,6 +66,21 @@ describe('/drips, as the app executes it', () => {
     expect(shown).toEqual(['fireworks@-1'])
   })
 
+  test('a name that is no effect and no saved drip plays nothing and says so', async () => {
+    const { manager, hostOf, run, shown, asked } = world()
+    expect(await manager.execute(hostOf, '2 thumbs hearts thumbs')).toBe('No effect or saved drip is called thumbs. /drips list shows them.')
+    await run()
+    expect(shown).toEqual([])
+    expect(asked()).toBe(0)
+  })
+
+  test('a hidden effect is no unknown name: timme plays', async () => {
+    const { manager, hostOf, run, shown } = world()
+    expect(await manager.execute(hostOf, 'timme')).toBe('drip: timme')
+    await run()
+    expect(shown).toEqual(['timme@-1'])
+  })
+
   test('counted effects stagger 1500 ms apart, effect by effect, round by round', async () => {
     const { manager, hostOf, timers, run, shown } = world()
     expect(await manager.execute(hostOf, '2 hearts 0.5 stars')).toBe('drip: hearts + stars x2')
