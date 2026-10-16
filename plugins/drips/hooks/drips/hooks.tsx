@@ -372,18 +372,18 @@ export function drips(on: On, options: PluginOptions) {
     return { result: JSON.stringify({ effects: BUILTIN_EFFECT_LIST, custom: await listCustoms(store($)), running: modOf($).manager.running() }) }
   })
 
-  // The Drips button, beside the engine's own hint under the prompt.
+  // The Drips button, beside the engine's own line: on the terminal the hint
+  // under the prompt; on the desktop, which draws no hint line of the engine's,
+  // the mode labels in the prompt's footer.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     const line = await next(e)
-    if (!settings.button) return line
-    const { Box, Button } = $.ui.resolve(e)
-    const isOpen = await read($, bandOpen)
-    return (
-      <Box flexDirection="row" gap={2}>
-        {line}
-        <Button key="drips" label="💧 Drips" plain dimColor={!isOpen} onPress={() => update($, bandOpen, v => !v)} />
-      </Box>
-    )
+    if (!settings.button || e.surface === 'desktop') return line
+    return withButton($, e, line)
+  })
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
+    const line = await next(e)
+    if (!settings.button || e.surface !== 'desktop') return line
+    return withButton($, e, line)
   })
 
   // Its row above the prompt: quick plays, the saved drips, Stop while

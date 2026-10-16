@@ -32,7 +32,7 @@ jobs:
           for dir in plugins/*/; do
             [ -d "$dir" ] || continue
             echo "::group::${dir}"
-            claude plugin test "$dir"
+            if [ -f "$dir/hooks/hooks.json" ]; then claude plugin test "$dir"; else echo "no hooks: a skill-only plugin, no tests to run"; fi
             claude plugin validate "$dir"
             echo "::endgroup::"
           done
