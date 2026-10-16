@@ -31,15 +31,15 @@ export const PLANS = JSON.stringify([
   { name: 'Pro', version: 1, seat_price_cents: 900, limits: { members: 10, installs: 3, workspaces: null }, mods: { workspaces: { limits: { workspaces: null, favorites: null, stream: 1 } }, programs: { limits: { programs: null, runs_per_day: null } } } },
 ])
 
-/** GET /v1/addons for a Free org: Drips and Programs, each on Pro and Team, per seat. */
+/** GET /v1/addons for a Free org: Gateway and Programs, each on Pro and Team, per seat. */
 export const addonOf = (mod: string, over: Record<string, unknown> = {}) => ({
   mod,
   name: mod[0]!.toUpperCase() + mod.slice(1),
   description: `The ${mod} mod.`,
   version: 1,
-  price_cents: mod === 'drips' ? 200 : 400,
+  price_cents: 400,
   per_seat: true,
-  monthly_cents: mod === 'drips' ? 200 : 400,
+  monthly_cents: 400,
   plans: ['Pro', 'Team'],
   free: false,
   allowed: false,
@@ -48,10 +48,7 @@ export const addonOf = (mod: string, over: Record<string, unknown> = {}) => ({
   quantity: null,
   ...over,
 })
-export const ADDONS = [addonOf('drips'), addonOf('programs')]
-
-/** POST /v1/billing/addons/preview's answer for Drips on a subscribed org. */
-export const PREVIEW = { mod: 'drips', action: 'add', prorated_cents: 87, currency: 'usd', monthly_cents: 200, proration_date: 1_792_000_000 }
+export const ADDONS = [addonOf('gateway'), addonOf('programs')]
 
 export type Answer = { status: number; body: unknown }
 const res = (status: number, body: unknown) => ({ ok: status >= 200 && status < 300, status, headers: {}, text: typeof body === 'string' ? body : JSON.stringify(body) })
@@ -107,7 +104,7 @@ export function fakeServer(account: Account) {
       return res(next.status, next.body)
     }
     if (path === '/v1/billing/addons' && method === 'POST') {
-      const next = s.adds.shift() ?? { status: 200, body: [addonOf('drips', { allowed: true, added: true, quantity: 1 }), addonOf('programs', { allowed: true })] }
+      const next = s.adds.shift() ?? { status: 200, body: [addonOf('gateway', { allowed: true, added: true, quantity: 1 }), addonOf('programs', { allowed: true })] }
       return res(next.status, next.body)
     }
     if (path === '/v1/org' && s.org) return res(200, { id: 'o', name: 'Org', admin_user_id: 'u', plan: {}, members: 1, billing_status: 'none', ...s.org })

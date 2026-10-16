@@ -62,7 +62,7 @@ describe("the plan's licence, checked offline", () => {
 
   test("the payload's shape: mods a map of limits (the server's list of slugs is refused), dates that parse", () => {
     expect(payloadOf(payload)).toEqual(payload)
-    expect(payloadOf({ ...payload, mods: { workspaces: { limits: { a: 1, b: null } }, drips: {} } })).not.toBeNull()
+    expect(payloadOf({ ...payload, mods: { workspaces: { limits: { a: 1, b: null } }, gateway: {} } })).not.toBeNull()
     for (const bad of [
       null,
       [],

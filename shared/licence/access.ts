@@ -75,7 +75,7 @@ export function addonPlan(addon: AddonInfo, plans: PlanInfo[], current: string):
   return cheapest?.name ?? addon.plans[0] ?? null
 }
 
-/** The add-on's offer, e.g. "Drips is an add-on ($2/month per seat on Pro).";
+/** The add-on's offer, e.g. "Gateway is an add-on ($4/month per seat on Pro).";
  *  null when the mod is in the plan or not sold as an add-on. */
 export function offerLine(s: AccountState): string | null {
   const addon = addonOf(s)

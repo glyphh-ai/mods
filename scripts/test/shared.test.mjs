@@ -27,8 +27,8 @@ test("the plugins are the folders with a manifest", () => {
 })
 
 test("MOD is read from the plugin's config", () => {
-  assert.equal(modOf("// x\nexport const MOD = 'drips'\n"), "drips")
-  assert.throws(() => modOf("export const MOD = \"drips\""), /no `export const MOD/)
+  assert.equal(modOf("// x\nexport const MOD = 'programs'\n"), "programs")
+  assert.throws(() => modOf("export const MOD = \"programs\""), /no `export const MOD/)
 })
 
 test("a copy has __MOD__ written in, and code says where its source is", () => {
