@@ -30,6 +30,7 @@ jobs:
       - name: Each plugin's tests and validation
         run: |
           for dir in plugins/*/; do
+            [ -d "$dir" ] || continue
             echo "::group::${dir}"
             claude plugin test "$dir"
             claude plugin validate "$dir"

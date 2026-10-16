@@ -25,6 +25,7 @@ export function filesUnder(dir) {
 
 /** The plugins under plugins/, by folder name. */
 export function pluginNames(root) {
+  if (!existsSync(join(root, "plugins"))) return []
   return readdirSync(join(root, "plugins"))
     .filter(n => existsSync(join(root, "plugins", n, ".claude-plugin", "plugin.json")))
     .sort()
