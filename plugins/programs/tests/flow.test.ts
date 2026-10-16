@@ -158,7 +158,7 @@ describe('the licence from the server', () => {
   })
 
   test('the plans: the server\'s map of limits, or its list of slugs (included, limits unknown); junk is none', () => {
-    expect(parsePlans(PLANS)[1]).toEqual({ name: 'Pro', price: 900, mods: { workspaces: { workspaces: null, favorites: null, stream: 1 }, programs: { programs: null, runs_per_day: null } } })
+    expect(parsePlans(PLANS)[1]).toEqual({ name: 'Pro', price: 900, mods: { ada: { models: null, precedents: null }, programs: { programs: null, runs_per_day: null } } })
     expect(parsePlans(JSON.stringify([{ name: 'Free', mods: ['programs', 3] }, { nope: 1 }, null]))).toEqual([{ name: 'Free', mods: { programs: {} } }])
     expect(parsePlans(JSON.stringify([{ name: 'Free' }]))).toEqual([{ name: 'Free', mods: {} }])
     expect(parsePlans('{}')).toEqual([])

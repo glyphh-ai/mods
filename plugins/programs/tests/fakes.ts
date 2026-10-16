@@ -17,7 +17,7 @@ export function account(limits: Record<string, number | null> | null, plan = 'Pr
     user_id: 'u',
     org_id: 'o',
     plan,
-    mods: limits ? { programs: { limits }, workspaces: { limits: {} } } : { workspaces: { limits: {} } },
+    mods: limits ? { programs: { limits }, ada: { limits: {} } } : { ada: { limits: {} } },
     expires_at: '2027-01-01T00:00:00Z',
   }
   return { ...INITIAL, install: { install_id: 'i-1', token: 'install-token' }, licence, fetchedAt: NOW, plans: [] }

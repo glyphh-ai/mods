@@ -67,7 +67,7 @@ function deps($: EngineInterface): Deps {
     every: (ms, fn) => $.clock.every(ms, () => void fn()),
     machine: () => machine($),
     isDesktop: async () => (await $.session.surfaces()).includes('desktop'),
-    // The way Workspaces opens its layout page: a tab of the app's Browser pane.
+    // A tab of the app's Browser pane.
     browse: url => $.mcp.call('Claude_Browser', 'preview_start', { url }).then(r => !r.isError, () => false),
     // A prompt submitted from inside a command would wait on the command
     // itself: it goes once the command has returned.

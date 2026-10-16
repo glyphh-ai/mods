@@ -21,7 +21,7 @@ const payload = { install_id: INSTALL, user_id: 'u', org_id: 'o', plan: 'Pro', m
 describe("the plan's licence, checked offline", () => {
   test("the server's licence checks out with the embedded key, for this install", async () => {
     const r = await verifyText(PRO, INSTALL)
-    expect(r).toMatchObject({ payload: { plan: 'Pro', install_id: INSTALL, mods: { workspaces: { limits: { stream: 1, workspaces: null } } } } })
+    expect(r).toMatchObject({ payload: { plan: 'Pro', install_id: INSTALL, mods: { ada: { limits: { models: null, precedents: null } } } } })
   })
 
   test("the Python fixture (non-ASCII, floats, a big int) checks out: the signed bytes are Python's", async () => {
@@ -34,7 +34,7 @@ describe("the plan's licence, checked offline", () => {
 
   test('a changed payload, a changed signature, or another key fails the signature', async () => {
     expect(await verifyText(PRO.replace('"plan":"Pro"', '"plan":"Max"'), INSTALL)).toEqual({ error: 'signature' })
-    expect(await verifyText(PRO.replace('"stream":1', '"stream":1.0'), INSTALL)).toEqual({ error: 'signature' })
+    expect(await verifyText(PRO.replace('"keys":1', '"keys":1.0'), INSTALL)).toEqual({ error: 'signature' })
     const sig = /"signature":"([^"]+)"/.exec(PRO)![1]!
     const flipped = sig.startsWith('A') ? `B${sig.slice(1)}` : `A${sig.slice(1)}`
     expect(await verifyText(PRO.replace(sig, flipped), INSTALL)).toEqual({ error: 'signature' })
@@ -62,15 +62,15 @@ describe("the plan's licence, checked offline", () => {
 
   test("the payload's shape: mods a map of limits (the server's list of slugs is refused), dates that parse", () => {
     expect(payloadOf(payload)).toEqual(payload)
-    expect(payloadOf({ ...payload, mods: { workspaces: { limits: { a: 1, b: null } }, gateway: {} } })).not.toBeNull()
+    expect(payloadOf({ ...payload, mods: { ada: { limits: { a: 1, b: null } }, gateway: {} } })).not.toBeNull()
     for (const bad of [
       null,
       [],
-      { ...payload, mods: ['workspaces'] },
+      { ...payload, mods: ['ada'] },
       { ...payload, mods: null },
-      { ...payload, mods: { workspaces: null } },
-      { ...payload, mods: { workspaces: { limits: { a: 'x' } } } },
-      { ...payload, mods: { workspaces: { limits: [1] } } },
+      { ...payload, mods: { ada: null } },
+      { ...payload, mods: { ada: { limits: { a: 'x' } } } },
+      { ...payload, mods: { ada: { limits: [1] } } },
       { ...payload, plan: 1 },
       { ...payload, expires_at: 'soon' },
       { ...payload, limits: 3 },

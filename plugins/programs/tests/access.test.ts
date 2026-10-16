@@ -19,7 +19,7 @@ const licence = (plan: string, limits: Record<string, number | null> | null, exp
   user_id: 'u',
   org_id: 'o',
   plan,
-  mods: limits ? { programs: { limits }, workspaces: { limits: {} } } : { workspaces: { limits: {} } },
+  mods: limits ? { programs: { limits }, ada: { limits: {} } } : { ada: { limits: {} } },
   expires_at: expires,
 })
 

@@ -45,10 +45,9 @@ export function gate(a: Access, offer: string | null = null): string | null {
 export const gateOf = (s: AccountState, now: number): string | null => gate(access(s, now), offerLine(s))
 
 // ── Add-ons ─────────────────────────────────────────────────────────────────
-// The plans include Workspaces alone; every other mod is an add-on on the
-// org's one subscription, allowed on the paid plans (GET /v1/addons says
-// which, and its price). The licence's `mods` is Workspaces and the add-ons
-// the org has.
+// The plans include no mod; every mod is an add-on on the org's one
+// subscription, allowed on the paid plans (GET /v1/addons says which, and
+// its price). The licence's `mods` is the add-ons the org has.
 
 /** This mod's add-on, when it is sold as one and the org has it not. */
 export function addonOf(s: AccountState): AddonInfo | null {

@@ -56,10 +56,9 @@ copy differs from this source.
    the plan changes. An org already subscribed is sent to the billing page.
    Checkout's seats are the org's (`GET /v1/org`), raised when the server
    names more taken.
-7. **Add-ons.** The plans include Workspaces alone; every other mod is an
-   add-on (`GET /v1/addons`: price, per seat or flat, the plans it is
-   allowed on, whether the org has it), and the licence's `mods` is
-   Workspaces and the org's add-ons. A mod sold as one and not in `mods`
+7. **Add-ons.** The plans include no mod; every mod is an add-on
+   (`GET /v1/addons`: price, per seat or flat, the plans it is allowed on,
+   whether the org has it), and the licence's `mods` is the org's add-ons. A mod sold as one and not in `mods`
    says "<Mod> is an add-on ($X/month per seat on <plan>). Add it in
    /<mod>." **Add it** (`/<mod> add`) asks
    `POST /v1/billing/addons/preview` `{ mod, action: "add" }`:
@@ -78,8 +77,7 @@ copy differs from this source.
 ## Where pages open
 
 The sign-in page, Stripe Checkout and the billing page open in Claude's
-Browser pane on the desktop app (`Claude_Browser` `preview_start`, the way
-Workspaces opens its layout page); when the app refuses the mod's call,
+Browser pane on the desktop app (`Claude_Browser` `preview_start`); when the app refuses the mod's call,
 Claude is asked, once the command has returned, to open the link there. The
 Mac's own browser is never opened from the desktop app. In a terminal session
 the link is printed and copied, and `open` is tried. No URL or prompt ever

@@ -27,8 +27,8 @@ export function seedAccount(files: Map<string, string>, account: Account, fetche
 
 /** The server's plans, in its order, with each mod's limits. */
 export const PLANS = JSON.stringify([
-  { name: 'Free', version: 1, seat_price_cents: 0, limits: { members: 1, installs: 2, workspaces: 1 }, mods: { workspaces: { limits: { workspaces: 1, favorites: 2, stream: 0 } }, programs: { limits: { programs: 3, runs_per_day: 50 } } } },
-  { name: 'Pro', version: 1, seat_price_cents: 900, limits: { members: 10, installs: 3, workspaces: null }, mods: { workspaces: { limits: { workspaces: null, favorites: null, stream: 1 } }, programs: { limits: { programs: null, runs_per_day: null } } } },
+  { name: 'Free', version: 1, seat_price_cents: 0, limits: { members: 1, installs: 2 }, mods: { ada: { limits: { models: 1, precedents: 2 } }, programs: { limits: { programs: 3, runs_per_day: 50 } } } },
+  { name: 'Pro', version: 1, seat_price_cents: 900, limits: { members: 10, installs: 3 }, mods: { ada: { limits: { models: null, precedents: null } }, programs: { limits: { programs: null, runs_per_day: null } } } },
 ])
 
 /** GET /v1/addons for a Free org: Gateway and Programs, each on Pro and Team, per seat. */

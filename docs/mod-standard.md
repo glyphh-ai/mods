@@ -1,7 +1,7 @@
 # The Glyphh mod standard
 
-Every Glyphh mod follows this standard, so a new mod lines up with Workspaces
-and Programs from its first commit. When this standard and a mod disagree, the
+Every Glyphh mod follows this standard, so a new mod lines up with Programs
+from its first commit. When this standard and a mod disagree, the
 mod is wrong.
 
 A mod is a Claude Code plugin with a hooks module. It changes Claude's own
@@ -87,9 +87,8 @@ it; `shared/README.md` has the flow in full.
 3. **Limits.** `payload.mods["<mod>"].limits` names each limit: a number, or
    null for unlimited. A name it leaves out is 0; a mod not in `mods` is not
    in the plan. A mod enforces only its own limit names, declared in
-   `LIMITS` in its `config.ts` as a count (`workspaces`, `programs`) or a
-   switch, 0 or 1 (`stream`). Workspaces has `workspaces`, `favorites` and
-   `stream`; Programs has `programs` and `runs_per_day`.
+   `LIMITS` in its `config.ts` as a count (`programs`, `runs_per_day`) or a
+   switch, 0 or 1. Programs has `programs` and `runs_per_day`.
 4. **Refusals.** Signed out, a mod's gated commands answer `gate()`: sign in.
    Not in the plan, or past a limit, they answer `refusal()`: a short line
    naming the limit and the plan that lifts it, with **Upgrade**. What a
@@ -98,8 +97,8 @@ it; `shared/README.md` has the flow in full.
    the plan that lifts the limit and waits for the licence's plan to change;
    Manage billing opens Stripe's billing page. The org's admin makes these
    changes; the mod says so to anyone else.
-6. **Add-ons.** The plans (Free, Pro, Team) include Workspaces alone; every
-   other mod (Programs, Gateway, Ada) is an add-on on the org's one
+6. **Add-ons.** The plans (Free, Pro, Team) include no mod; every mod
+   (Programs, Gateway, Ada) is an add-on on the org's one
    Stripe subscription, allowed on the paid plans (`GET /v1/addons`). A mod
    sold as one and not in `mods` is closed with its offer, "Programs is an
    add-on ($4/month per seat on Pro). Add it in /programs.", and **Add it**
@@ -230,11 +229,10 @@ and its refusal line, so a save past a limit is refused inline with
 
 ## Naming and writing
 
-- The mod's name is a lowercase word (`workspaces`, `programs`). `PRODUCT` is
-  how people read it (`Workspaces`, `Programs`).
+- The mod's name is a lowercase word (`programs`, `gateway`). `PRODUCT` is
+  how people read it (`Programs`, `Gateway`).
 - Commands are `/<mod>` for the mod's own page, `/<mod> signin` and
-  `/<mod> signout` for the Glyphh account, plus short verbs of its own
-  (`/dip`).
+  `/<mod> signout` for the Glyphh account, plus short verbs of its own.
 - Write user-facing words in plain British English, short and concrete. Say
   what something does, not how it works.
 - Use clear commit messages, one step per commit. Commits made with Claude
