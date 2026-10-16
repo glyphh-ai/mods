@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { createAda, describe as describeHealth } from '../hooks/ada/core.ts'
 import { runArgs } from '../hooks/ada/container.ts'
-import { archOf, ASSETS, fileStem, installed, NO_PART, VERSION } from '../hooks/ada/part.ts'
+import { archOf, ASSETS, fileStem, installed, NO_PART, parseAssets, VERSION } from '../hooks/ada/part.ts'
 import { account, deps, SHA } from './fakes.ts'
 
 const stem = fileStem('arm64')
@@ -20,6 +20,15 @@ describe('the Ada part and the licence, into rrotor', () => {
     expect(installed([{ name: 'ada', version: VERSION, mod: 'ada', arch: 'arm64' }])).toBe(true)
     expect(installed([{ name: 'ada', version: '0.0.1', mod: 'ada', arch: 'arm64' }])).toBe(false)
     expect(ASSETS).toEqual({ amd64: null, arm64: null })
+  })
+
+  test('the assets a release writes in, as JSON: both architectures, or null for what is missing or not JSON', () => {
+    const a = { url: 'https://github.com/glyphh-ai/rrotor/releases/download/part-ada-3.1.0/ada-3.1.0-arm64.tar.gz', sha256: 'ab'.repeat(32), signature: 'c2ln' }
+    expect(parseAssets(JSON.stringify({ arm64: a }))).toEqual({ amd64: null, arm64: a })
+    expect(parseAssets(JSON.stringify({ amd64: { ...a, extra: 1 }, arm64: { url: a.url } }))).toEqual({ amd64: a, arm64: null })
+    expect(parseAssets('')).toEqual({ amd64: null, arm64: null })
+    expect(parseAssets('not json')).toEqual({ amd64: null, arm64: null })
+    expect(parseAssets('null')).toEqual({ amd64: null, arm64: null })
   })
 
   test('at the start: the licence handed to rrotor once, then the part installed from the folder in /config', async () => {

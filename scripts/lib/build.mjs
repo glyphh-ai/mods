@@ -26,6 +26,12 @@ export const TBD = "TBD"
  *   licence: the Glyphh server (SERVER) and the key it signs licences with (PUBLIC_KEY)
  *   unlock:  the same server and key (it signs one-time licences too), and
  *            each plugin's Stripe Payment Link (PAYMENT_LINK)
+ *   ada:     the Ada mod's own, all per plugin: Glyphh's release public key
+ *            (RELEASE_PUBLIC_KEY, what signs rrotor's parts), the rrotor image's
+ *            digest (IMAGE_DIGEST, `sha256:…` of the multi-arch index at the
+ *            version image.ts names) and the Ada part's tarballs (ASSETS: an
+ *            object `{amd64, arm64}`, each `{url, sha256, signature}` from
+ *            rrotor's part-ada release; it goes in as JSON text)
  */
 export const RELEASE_VALUES = {
   licence: [
@@ -46,10 +52,19 @@ export const RELEASE_VALUES = {
     { key: "SERVER", file: "hooks/glyphh/api.ts", name: "DEFAULT_SERVER" },
     { key: "SERVER", file: ".mcp.json", json: ["mcpServers", "glyphh", "env", "GLYPHH_SERVER_URL"] },
   ],
+  ada: [
+    { key: "RELEASE_PUBLIC_KEY", file: "hooks/ada/part.ts", name: "RELEASE_PUBLIC_KEY", perPlugin: true },
+    { key: "ASSETS", file: "hooks/ada/part.ts", name: "ASSETS_JSON", perPlugin: true },
+    { key: "IMAGE_DIGEST", file: "hooks/ada/image.ts", name: "DIGEST", perPlugin: true },
+  ],
 }
 
 /** The file that marks a plugin as the account mod, using the `account` release values. */
 export const ACCOUNT_MARK = "hooks/glyphh/api.ts"
+/** The file that marks a plugin as the Ada mod, using the `ada` release values. */
+export const ADA_MARK = "hooks/ada/part.ts"
+/** The modules a plugin uses beyond its shared copies, by the file that marks each. */
+export const MARKS = [[ACCOUNT_MARK, "account"], [ADA_MARK, "ada"]]
 
 /** `text` (a JSON document) with the value at `path` set; objects on the way are made. */
 export function setJson(text, path, value) {
@@ -74,14 +89,40 @@ export function releaseFiles(modules) {
   return new Set(releaseSpecs(modules).map(s => s.file))
 }
 
-/** A plugin's live values from release.json, for the modules it uses. */
+/** A plugin's live values from release.json, for the modules it uses; a value
+ *  that is an object (ASSETS) is carried as its JSON text. */
 export function releaseFor(release, plugin, modules = ["licence"]) {
   const values = {}
   for (const spec of releaseSpecs(modules)) {
     const from = spec.perPlugin ? release?.plugins?.[plugin] : release
-    values[spec.key] = String(from?.[spec.key] ?? "")
+    const v = from?.[spec.key]
+    values[spec.key] = v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v)
   }
   return values
+}
+
+/** Why the Ada part's assets cannot ship: not both architectures, an address that isn't https, a SHA-256 that
+ *  isn't one, or a signature missing. Nothing for assets that are TBD or missing (named already). */
+export function assetProblems(text) {
+  if (!text || text === TBD) return []
+  let assets
+  try {
+    assets = JSON.parse(text)
+  } catch {
+    return ["ASSETS is not JSON"]
+  }
+  const out = []
+  for (const arch of ["amd64", "arm64"]) {
+    const a = assets?.[arch]
+    if (!a || typeof a !== "object") {
+      out.push(`ASSETS has no ${arch}`)
+      continue
+    }
+    if (!/^https:\/\//.test(a.url ?? "")) out.push(`ASSETS ${arch} url is not https`)
+    if (!/^[0-9a-f]{64}$/.test(a.sha256 ?? "")) out.push(`ASSETS ${arch} sha256 is not a SHA-256`)
+    if (!a.signature) out.push(`ASSETS ${arch} has no signature`)
+  }
+  return out
 }
 
 /** Why these values cannot ship: not known yet, a server that isn't https, or
@@ -94,6 +135,9 @@ export function problems(values) {
     if (v && v !== TBD && !/^https:\/\//.test(v)) out.push(`${key} is not https`)
   }
   if (/\/test_/.test(values.PAYMENT_LINK ?? "")) out.push("PAYMENT_LINK is a Stripe test link")
+  const digest = values.IMAGE_DIGEST
+  if (digest && digest !== TBD && !/^sha256:[0-9a-f]{64}$/.test(digest)) out.push("IMAGE_DIGEST is not sha256:<64 hex>")
+  out.push(...assetProblems(values.ASSETS))
   return out
 }
 

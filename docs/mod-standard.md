@@ -249,7 +249,9 @@ and its refusal line, so a save past a limit is refused inline with
 ## Versioning and releases
 
 1. Bump the plugin's `version` in the change being released.
-2. Keep live values in `release.json` (`SERVER`, `PUBLIC_KEY`). A release
+2. Keep live values in `release.json` (`SERVER`, `PUBLIC_KEY`, and per plugin
+   what it needs: a Payment Link, or the Ada mod's key, image digest and part
+   assets). A release
    refuses `TBD` or a server that isn't https.
 3. Tag `v*`. `release.yml` checks, tests, validates and builds every mod. It
    publishes to glyphh-ai/glyphh only when `PUBLISH_ENABLED` is `true`.

@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { ACCOUNT_MARK, applyRelease, entryFor, isShipped, marketplace, parseArgs, problems, releaseFiles, releaseFor } from "./lib/build.mjs"
+import { MARKS, applyRelease, entryFor, isShipped, marketplace, parseArgs, problems, releaseFiles, releaseFor } from "./lib/build.mjs"
 import { actualCopy, differences, expectedCopy, filesUnder, modulesOf, pluginNames } from "./lib/shared.mjs"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -45,7 +45,7 @@ for (const plugin of plugins) {
     if (drift.length) refusals.push(`${plugin}: ${module.copy} differs from ${module.shared} (run node scripts/sync-shared.mjs)`)
   }
   const names = modules.map(m => m.name)
-  if (existsSync(join(root, "plugins", plugin, ACCOUNT_MARK))) names.push("account")
+  for (const [mark, name] of MARKS) if (existsSync(join(root, "plugins", plugin, mark))) names.push(name)
   const values = releaseFor(release, plugin, names)
   const why = problems(values)
   if (why.length && !args.dryRun) refusals.push(`${plugin}: ${why.join("; ")} in release.json`)

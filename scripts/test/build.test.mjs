@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 
-import { ACCOUNT_MARK, RELEASE_VALUES, applyRelease, entryFor, isShipped, marketplace, parseArgs, problems, releaseFiles, releaseFor, releaseSpecs, setConst, setJson } from "../lib/build.mjs"
+import { ACCOUNT_MARK, ADA_MARK, MARKS, RELEASE_VALUES, applyRelease, assetProblems, entryFor, isShipped, marketplace, parseArgs, problems, releaseFiles, releaseFor, releaseSpecs, setConst, setJson } from "../lib/build.mjs"
 
 test("only what a buyer needs ships", () => {
   for (const p of [".claude-plugin/plugin.json", ".mcp.json", "hooks/register.tsx", "hooks/licence/vendor/ed25519.LICENSE", "helper/viewer.mjs", "native/overlay.swift", "mcp/dist/server.mjs", "mcp/card/sign-in.html", "skills/glyphh-sign-in/SKILL.md", "types/index.d.ts", "README.md", "LICENSE"]) assert.equal(isShipped(p), true, p)
@@ -70,7 +70,8 @@ test("release.json names the live server; the dev source keeps the dev server, i
   const release = JSON.parse(readFileSync(new URL("release.json", root), "utf8"))
   assert.equal(release.SERVER, "https://api.glyphh.ai")
   assert.deepEqual(Object.keys(release).sort(), ["PUBLIC_KEY", "SERVER", "plugins"])
-  assert.deepEqual(Object.keys(release.plugins).sort(), ["drips", "games"])
+  assert.deepEqual(Object.keys(release.plugins).sort(), ["ada", "drips", "games"])
+  assert.deepEqual(Object.keys(release.plugins.ada).sort(), ["ASSETS", "IMAGE_DIGEST", "RELEASE_PUBLIC_KEY"])
   for (const p of Object.values(release.plugins)) assert.deepEqual(Object.keys(p), ["PAYMENT_LINK"])
   for (const f of ["shared/licence/server.ts", "shared/unlock/server.ts"]) assert.match(readFileSync(new URL(f, root), "utf8"), /^export const SERVER = 'http:\/\/localhost:8080'$/m)
 })
@@ -109,4 +110,41 @@ test("the command line", () => {
   assert.throws(() => parseArgs(["--out", "o"]), /or --all/)
   assert.throws(() => parseArgs(["a", "--all", "--out", "o"]), /or --all/)
   assert.throws(() => parseArgs(["--fast", "--out", "o"]), /unknown option/)
+})
+
+test("the Ada mod's release key, image digest and part assets go into part.ts and image.ts; the assets as JSON", () => {
+  assert.equal(ADA_MARK, "hooks/ada/part.ts")
+  assert.deepEqual(MARKS, [[ACCOUNT_MARK, "account"], [ADA_MARK, "ada"]])
+  assert.deepEqual([...releaseFiles(["ada"])], ["hooks/ada/part.ts", "hooks/ada/image.ts"])
+  const asset = arch => ({ url: `https://github.com/glyphh-ai/rrotor/releases/download/part-ada-3.1.0/ada-3.1.0-${arch}.tar.gz`, sha256: "ab".repeat(32), signature: "c2ln" })
+  const assets = { amd64: asset("amd64"), arm64: asset("arm64") }
+  const release = { SERVER: "https://api.glyphh.ai", PUBLIC_KEY: "k", plugins: { ada: { RELEASE_PUBLIC_KEY: "rk", IMAGE_DIGEST: `sha256:${"cd".repeat(32)}`, ASSETS: assets } } }
+  const values = releaseFor(release, "ada", ["licence", "ada"])
+  assert.deepEqual(values, { SERVER: "https://api.glyphh.ai", PUBLIC_KEY: "k", RELEASE_PUBLIC_KEY: "rk", IMAGE_DIGEST: `sha256:${"cd".repeat(32)}`, ASSETS: JSON.stringify(assets) })
+  assert.deepEqual(problems(values), [])
+  assert.deepEqual(releaseFor({ plugins: { ada: { ASSETS: "TBD" } } }, "ada", ["ada"]), { RELEASE_PUBLIC_KEY: "", ASSETS: "TBD", IMAGE_DIGEST: "" })
+  const files = new Map([
+    ["hooks/ada/part.ts", "export const RELEASE_PUBLIC_KEY = ''\nexport const ASSETS_JSON = ''\n"],
+    ["hooks/ada/image.ts", "export const DIGEST = ''\n"],
+  ])
+  const live = applyRelease(files, { RELEASE_PUBLIC_KEY: "rk", ASSETS: JSON.stringify(assets), IMAGE_DIGEST: "sha256:abc" })
+  assert.equal(live.files.get("hooks/ada/part.ts"), `export const RELEASE_PUBLIC_KEY = 'rk'\nexport const ASSETS_JSON = '${JSON.stringify(assets)}'\n`)
+  assert.equal(live.files.get("hooks/ada/image.ts"), "export const DIGEST = 'sha256:abc'\n")
+  assert.deepEqual(live.kept, [])
+})
+
+test("a release refuses a digest that isn't sha256:<64 hex> and assets that are short of an architecture, https, a SHA-256 or a signature", () => {
+  const base = { SERVER: "https://api.glyphh.ai", PUBLIC_KEY: "k", RELEASE_PUBLIC_KEY: "rk" }
+  assert.deepEqual(problems({ ...base, IMAGE_DIGEST: "sha256:short", ASSETS: "TBD" }), ["ASSETS is TBD", "IMAGE_DIGEST is not sha256:<64 hex>"])
+  assert.deepEqual(problems({ ...base, IMAGE_DIGEST: "", ASSETS: "" }), ["IMAGE_DIGEST is missing", "ASSETS is missing"])
+  assert.deepEqual(assetProblems("not json"), ["ASSETS is not JSON"])
+  assert.deepEqual(assetProblems(JSON.stringify({ amd64: { url: "http://x", sha256: "zz", signature: "" } })), [
+    "ASSETS amd64 url is not https",
+    "ASSETS amd64 sha256 is not a SHA-256",
+    "ASSETS amd64 has no signature",
+    "ASSETS has no arm64",
+  ])
+  assert.deepEqual(assetProblems(JSON.stringify({ amd64: "x", arm64: null })), ["ASSETS has no amd64", "ASSETS has no arm64"])
+  assert.deepEqual(assetProblems(""), [])
+  assert.deepEqual(assetProblems("TBD"), [])
 })

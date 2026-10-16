@@ -9,8 +9,27 @@ export const VERSION = '3.1.0'
 export const RELEASE_PUBLIC_KEY = ''
 export type Arch = 'amd64' | 'arm64'
 export type Asset = { url: string; sha256: string; signature: string }
-/** The part's tarballs on this mod's release, per architecture; null while this build carries none. */
-export const ASSETS: Record<Arch, Asset | null> = { amd64: null, arm64: null }
+/** The part's tarballs, per architecture, as JSON `{amd64: {url, sha256, signature}, arm64: …}`: rrotor's
+ *  part-ada release. Set by the release; empty while this build carries none. */
+export const ASSETS_JSON = ''
+
+/** The assets ASSETS_JSON names; null for an architecture it does not (or when it is not JSON). */
+export function parseAssets(text: string): Record<Arch, Asset | null> {
+  const none: Record<Arch, Asset | null> = { amd64: null, arm64: null }
+  if (!text.trim()) return none
+  let doc: unknown
+  try {
+    doc = JSON.parse(text)
+  } catch {
+    return none
+  }
+  const d = (doc ?? {}) as Record<string, Partial<Asset> | null | undefined>
+  const one = (a: Partial<Asset> | null | undefined): Asset | null =>
+    a && typeof a.url === 'string' && typeof a.sha256 === 'string' && typeof a.signature === 'string' ? { url: a.url, sha256: a.sha256, signature: a.signature } : null
+  return { amd64: one(d.amd64), arm64: one(d.arm64) }
+}
+
+export const ASSETS: Record<Arch, Asset | null> = parseAssets(ASSETS_JSON)
 
 export const NO_PART = 'This build of Ada carries no Ada part yet. Set Ada part in /config to a folder with a local build of it (rrotor/parts/ada).'
 
