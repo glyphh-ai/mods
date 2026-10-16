@@ -1,14 +1,61 @@
-# The shared account module
+# The shared modules
 
-The one source of every mod's Glyphh account: one sign-in shared by every
-Glyphh mod on the machine, and the plan's licence that sets what each mod may
-do. Everything is a subscription; there is no trial and no one-off purchase.
+Three modules the mods' code comes from. A plugin uses a module when its copy
+holds the plugin's own `config.ts`; that file is the only one not copied, and
+its `MOD` (and `COMMAND`, when it has one) is written in for `__MOD__` and
+`__COMMAND__` in the others (the engine reads atom references and command
+matchers as literals). A plugin loads on its own, so it cannot reach outside
+its folder: never edit a copy. Edit the source and run
+`node scripts/sync-shared.mjs`; `node scripts/check-shared.mjs` fails when a
+copy differs, and the release build refuses one.
 
-`shared/licence/` is the source. Each plugin carries a copy in
-`hooks/licence/` (a plugin loads on its own, so it cannot reach outside its
-folder). Never edit a plugin's copy; edit `shared/licence/` and run
-`node scripts/sync-shared.mjs`. `node scripts/check-shared.mjs` fails when a
-copy differs from this source.
+| Module | Copied to | For a mod that | Uses |
+| --- | --- | --- | --- |
+| `shared/licence/` | `hooks/licence/` | needs a Glyphh account: the sign-in, the plan's licence and its limits | Ada |
+| `shared/unlock/` | `hooks/unlock/` | is bought once, per machine: a Stripe Payment Link, then a licence the server signs for that install, checked offline, with no account | Drips, Games |
+| `shared/overlay/` | `hooks/overlay/` | draws over Claude: the native overlay (`overlay.swift`, compiled once with swiftc and kept in `~/Library/Caches/glyphh-overlay`) effects and games play in | Drips, Games |
+
+The `glyphh` mod is the account itself and uses none of these.
+
+## Live values
+
+`release.json` holds what a release swaps in for the dev values
+(`scripts/build.mjs`), for the modules each plugin uses. The build refuses
+`TBD`, a server that isn't https, and a Stripe test link; `--dry-run` keeps
+the dev values and says which. The overlay has none.
+
+| Key | Goes in |
+| --- | --- |
+| `SERVER` | `hooks/licence/server.ts` and `hooks/unlock/server.ts` `SERVER`: the Glyphh server; and, for the `glyphh` mod, `hooks/glyphh/api.ts` `DEFAULT_SERVER` and `.mcp.json`'s `GLYPHH_SERVER_URL` |
+| `PUBLIC_KEY` | `hooks/licence/server.ts` and `hooks/unlock/server.ts` `PUBLIC_KEY`: the one key the server signs every licence with |
+| `plugins.<plugin>.PAYMENT_LINK` | `hooks/unlock/config.ts` `PAYMENT_LINK`: the plugin's live Stripe Payment Link |
+
+## Bought once (`shared/unlock/`)
+
+`/<command> unlock` opens the mod's Stripe Payment Link with this install's
+id (`client_reference_id`) and asks
+`{SERVER}/v1/unlock/license?mod=<mod>&install=<id>` every few seconds until
+it answers a licence: `base64url(JSON payload) "." base64url(Ed25519
+signature)`, checked offline against `PUBLIC_KEY` and kept in the mod's
+store, checked again at each session start. `/<command> key <licence>`
+carries it to another machine. The plugin's `hooks/unlock/config.ts` holds
+`MOD`, `COMMAND`, `PAYMENT_LINK`, `PRODUCT`, `PRICE` and `ABOUT`.
+
+## The overlay (`shared/overlay/`)
+
+| File | What it does |
+| --- | --- |
+| `overlay.swift` | The native overlay: one effect or game over Claude's window, or over the whole screen |
+| `overlay.ts` | Its command protocol, pure |
+| `host.ts` | Compiles it the first time it is needed, one binary per version of its source, and runs one overlay process per document |
+| `target.ts` | Which window `claude-window` means: the Claude app's own, or the terminal hosting Claude Code |
+
+The plugin's `hooks/overlay/config.ts` holds `MOD`.
+
+## The Glyphh account (`shared/licence/`)
+
+One sign-in shared by every Glyphh mod on the machine, and the plan's
+licence that sets what each mod may do.
 
 | File | What it does |
 | --- | --- |

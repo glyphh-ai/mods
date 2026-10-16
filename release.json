@@ -1,4 +1,12 @@
 {
   "SERVER": "https://api.glyphh.ai",
-  "PUBLIC_KEY": "TBD"
+  "PUBLIC_KEY": "TBD",
+  "plugins": {
+    "drips": {
+      "PAYMENT_LINK": "TBD"
+    },
+    "games": {
+      "PAYMENT_LINK": "TBD"
+    }
+  }
 }

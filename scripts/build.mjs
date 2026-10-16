@@ -2,8 +2,11 @@
 // Builds what buyers install: each plugin's shipped files with the live values
 // from release.json, under <out>/plugins/<name>, and <out>/.claude-plugin/
 // marketplace.json listing them; then `claude plugin validate` on the result.
-// Refuses while a live value is TBD (or the server isn't https), except
-// --dry-run, which keeps the dev values and says which.
+// The live values are the ones of the shared modules the plugin uses
+// (hooks/licence and hooks/unlock: the Glyphh server and its key; hooks/unlock
+// also the plugin's Payment Link). Refuses while one is TBD, the server isn't
+// https or a Payment Link is a Stripe test one, except --dry-run, which keeps
+// the dev values and says which.
 //
 // Usage: node scripts/build.mjs <plugin...|--all> [--dry-run] --out <dir>
 import { spawnSync } from "node:child_process"
@@ -11,8 +14,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { RELEASE_FILES, applyRelease, entryFor, isShipped, marketplace, parseArgs, problems, releaseFor } from "./lib/build.mjs"
-import { actualCopy, differences, expectedCopy, filesUnder, pluginNames } from "./lib/shared.mjs"
+import { ACCOUNT_MARK, applyRelease, entryFor, isShipped, marketplace, parseArgs, problems, releaseFiles, releaseFor } from "./lib/build.mjs"
+import { actualCopy, differences, expectedCopy, filesUnder, modulesOf, pluginNames } from "./lib/shared.mjs"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const fail = message => {
@@ -36,21 +39,26 @@ const out = resolve(args.out)
 const plans = []
 const refusals = []
 for (const plugin of plugins) {
-  const drift = differences(expectedCopy(root, plugin), actualCopy(root, plugin))
-  if (drift.length) refusals.push(`${plugin}: hooks/licence differs from shared/licence (run node scripts/sync-shared.mjs)`)
-  const values = releaseFor(release)
+  const modules = modulesOf(root, plugin)
+  for (const module of modules) {
+    const drift = differences(expectedCopy(root, plugin, module), actualCopy(root, plugin, module))
+    if (drift.length) refusals.push(`${plugin}: ${module.copy} differs from ${module.shared} (run node scripts/sync-shared.mjs)`)
+  }
+  const names = modules.map(m => m.name)
+  if (existsSync(join(root, "plugins", plugin, ACCOUNT_MARK))) names.push("account")
+  const values = releaseFor(release, plugin, names)
   const why = problems(values)
   if (why.length && !args.dryRun) refusals.push(`${plugin}: ${why.join("; ")} in release.json`)
-  plans.push({ plugin, values, why })
+  plans.push({ plugin, values, why, names })
 }
 if (refusals.length) fail(`not built:\n  ${refusals.join("\n  ")}`)
 
 const entries = []
-for (const { plugin, values, why } of plans) {
+for (const { plugin, values, why, names } of plans) {
   const src = join(root, "plugins", plugin)
   const shipped = filesUnder(src).filter(isShipped)
-  const releaseFiles = new Set(Object.values(RELEASE_FILES))
-  const texts = new Map(shipped.filter(p => releaseFiles.has(p)).map(p => [p, readFileSync(join(src, p), "utf8")]))
+  const rewritten = releaseFiles(names)
+  const texts = new Map(shipped.filter(p => rewritten.has(p)).map(p => [p, readFileSync(join(src, p), "utf8")]))
   const { files, kept } = applyRelease(texts, values)
   const dest = join(out, "plugins", plugin)
   rmSync(dest, { recursive: true, force: true })

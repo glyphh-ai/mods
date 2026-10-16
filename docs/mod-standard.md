@@ -64,11 +64,19 @@ plugins/<mod>/
 
 ## Accounts and plans
 
-Every mod is part of one subscription. There is no trial, no one-off price
-and no licence key. A person signs in to Glyphh once, with a free account,
-and their plan sets what each mod may do. The shared module
-(`shared/licence/`, copied in by `node scripts/sync-shared.mjs`) does all of
-it; `shared/README.md` has the flow in full.
+A mod is sold one of two ways, and carries the shared module for its way
+(copied in by `node scripts/sync-shared.mjs`; `shared/README.md` has each
+flow in full):
+
+- **On the account** (`shared/licence/`): a person signs in to Glyphh once,
+  with a free account, and their plan sets what the mod may do. No trial, no
+  one-off price, no licence key.
+- **Bought once** (`shared/unlock/`): $8, per machine, with no account: a
+  Stripe Payment Link, then a licence the server signs for that install,
+  checked offline. `/<mod> unlock` buys it; `/<mod> key <licence>` carries
+  the licence to another machine.
+
+What follows is the account's flow.
 
 1. **One sign-in per machine.** `/<mod> signin` (or **Sign in to Glyphh** in
    the mod's page) runs the Glyphh server's device flow: a code shown, the
@@ -97,8 +105,8 @@ it; `shared/README.md` has the flow in full.
    the plan that lifts the limit and waits for the licence's plan to change;
    Manage billing opens Stripe's billing page. The org's admin makes these
    changes; the mod says so to anyone else.
-6. **Add-ons.** The plans (Free, Pro, Team) include no mod; every mod
-   (Ada) is an add-on on the org's one
+6. **Add-ons.** The plans (Free, Pro, Team) include no mod; every mod on
+   the account (Ada) is an add-on on the org's one
    Stripe subscription, allowed on the paid plans (`GET /v1/addons`). A mod
    sold as one and not in `mods` is closed with its offer, "Ada is an
    add-on ($4/month per seat on Pro). Add it in /ada.", and **Add it**

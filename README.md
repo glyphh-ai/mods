@@ -1,9 +1,10 @@
 # Glyphh mods (source)
 
 This private repository is the source of every Glyphh mod: plugins that change
-Claude's own interface and behaviour. Glyphh is a subscription: a person signs
-in once with a free Glyphh account, and their plan sets what each mod may do
-(its limits, from the plan's licence).
+Claude's own interface and behaviour. `glyphh` is the account: a person signs
+in once, free, and their plan sets what each mod on the account may do (its
+limits, from the plan's licence). `drips` and `games` are bought once, per
+machine, with no account. `ada` is designed.
 
 Buyers never see this repository. They install from
 [glyphh-ai/glyphh](https://github.com/glyphh-ai/glyphh), the public
@@ -24,8 +25,8 @@ writes it.
 | Path | What it is |
 | --- | --- |
 | `plugins/<mod>/` | One mod: its manifest, hooks, helper, types, tests and README. Each loads on its own. |
-| `shared/licence/` | The account module every mod carries: the Glyphh sign-in and the plan's licence. It is the one source, copied into each plugin's `hooks/licence/`. See `shared/README.md`. |
-| `release.json` | The live values a release swaps in: `SERVER` (the Glyphh server) and `PUBLIC_KEY` (the licence's Ed25519 public key). |
+| `shared/` | The modules copied into each plugin that uses them: `licence/` (the account), `unlock/` (bought once) and `overlay/` (drawing over Claude). See `shared/README.md`. |
+| `release.json` | The live values a release swaps in: `SERVER` (the Glyphh server), `PUBLIC_KEY` (the key it signs licences with) and each bought-once plugin's `PAYMENT_LINK`. |
 | `scripts/` | `sync-shared.mjs`, `check-shared.mjs` and `build.mjs`, with their tests in `scripts/test/`. |
 | `.github/workflows/` | `checks.yml` runs on every push and pull request. `release.yml` runs on a `v*` tag. |
 | `docs/mod-standard.md` | The standard every mod follows. Read it before starting one. |
@@ -75,9 +76,9 @@ first time it loads the mod. That folder is ignored by git and never ships.
    `claude plugin test` and `claude plugin validate` on the plugin, then
    `node scripts/build.mjs <mod> --dry-run --out /tmp/market`.
 
-## Change the account module
+## Change a shared module
 
-Edit `shared/licence/`, never a plugin's copy. Then run
+Edit `shared/licence/`, `shared/unlock/` or `shared/overlay/`, never a plugin's copy. Then run
 `node scripts/sync-shared.mjs` and commit the source and the copies together.
 `check-shared.mjs`, run in CI, fails when a copy differs from the source.
 
@@ -85,8 +86,8 @@ Edit `shared/licence/`, never a plugin's copy. Then run
 
 1. Bump `version` in the plugin's `.claude-plugin/plugin.json` for each mod
    that changed. The build never changes versions.
-2. Make sure `release.json` holds live values. The build refuses `TBD`, or a
-   server that isn't https.
+2. Make sure `release.json` holds live values. The build refuses `TBD`, a
+   server that isn't https, or a Stripe test Payment Link.
 3. Tag and push the tag: `git tag v2026.10.15 && git push origin v2026.10.15`.
 4. `release.yml` then does the following:
    - Checks the shared copies.
@@ -128,7 +129,8 @@ These stay in this repository and never go to buyers:
 - `shared/` as a folder (buyers get only the copies inside each mod)
 - this README and the standard
 
-The build copies only a plugin's manifest, `hooks/`, `helper/`, `native/`,
+The build copies only a plugin's manifest, `.mcp.json`, `hooks/`, `helper/`,
+`native/`, `mcp/` (its built server and card, not its source), `skills/`,
 `types/`, README and LICENSE. No secret lives in any file: the server's
 address and the licence's public key are public by design, the signing key
 stays on the server, and each person's token stays in their own
