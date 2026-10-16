@@ -72,7 +72,7 @@ test("release.json names the live server; the dev source keeps the dev server, i
   assert.deepEqual(Object.keys(release).sort(), ["PUBLIC_KEY", "SERVER", "plugins"])
   assert.deepEqual(Object.keys(release.plugins).sort(), ["ada", "drips", "games"])
   assert.deepEqual(Object.keys(release.plugins.ada).sort(), ["ASSETS", "IMAGE_DIGEST", "RELEASE_PUBLIC_KEY"])
-  for (const p of Object.values(release.plugins)) assert.deepEqual(Object.keys(p), ["PAYMENT_LINK"])
+  for (const p of ["drips", "games"]) assert.deepEqual(Object.keys(release.plugins[p]), ["PAYMENT_LINK"])
   for (const f of ["shared/licence/server.ts", "shared/unlock/server.ts"]) assert.match(readFileSync(new URL(f, root), "utf8"), /^export const SERVER = 'http:\/\/localhost:8080'$/m)
 })
 
