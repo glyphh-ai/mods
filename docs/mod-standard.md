@@ -1,6 +1,6 @@
 # The Glyphh mod standard
 
-Every Glyphh mod follows this standard, so a new mod lines up with Ada
+Every Glyphh mod follows this standard, so a new mod lines up with the others
 from its first commit. When this standard and a mod disagree, the
 mod is wrong.
 
@@ -96,7 +96,7 @@ What follows is the account's flow.
    null for unlimited. A name it leaves out is 0; a mod not in `mods` is not
    in the plan. A mod enforces only its own limit names, declared in
    `LIMITS` in its `config.ts` as a count (`models`, `precedents`) or a
-   switch, 0 or 1. Ada has `models` and `precedents`.
+   switch, 0 or 1.
 4. **Refusals.** Signed out, a mod's gated commands answer `gate()`: sign in.
    Not in the plan, or past a limit, they answer `refusal()`: a short line
    naming the limit and the plan that lifts it, with **Upgrade**. What a
@@ -106,10 +106,10 @@ What follows is the account's flow.
    Manage billing opens Stripe's billing page. The org's admin makes these
    changes; the mod says so to anyone else.
 6. **Add-ons.** The plans (Free, Pro, Team) include no mod; every mod on
-   the account (Ada) is an add-on on the org's one
+   the account is an add-on on the org's one
    Stripe subscription, allowed on the paid plans (`GET /v1/addons`). A mod
-   sold as one and not in `mods` is closed with its offer, "Ada is an
-   add-on ($4/month per seat on Pro). Add it in /ada.", and **Add it**
+   sold as one and not in `mods` is closed with its offer, "<Product> is an
+   add-on ($4/month per seat on Pro). Add it in /<mod>.", and **Add it**
    (`addOn()`, `/<mod> add`). Not subscribed, Add it opens Checkout for the
    cheapest plan that allows it with the add-on, at the org's seats, and
    waits for the mod to be in the licence. Subscribed, it shows the
@@ -237,8 +237,8 @@ and its refusal line, so a save past a limit is refused inline with
 
 ## Naming and writing
 
-- The mod's name is a lowercase word (`ada`). `PRODUCT` is
-  how people read it (`Ada`).
+- The mod's name is a lowercase word (`drips`). `PRODUCT` is
+  how people read it (`Drips`).
 - Commands are `/<mod>` for the mod's own page, `/<mod> signin` and
   `/<mod> signout` for the Glyphh account, plus short verbs of its own.
 - Write user-facing words in plain British English, short and concrete. Say
@@ -249,10 +249,9 @@ and its refusal line, so a save past a limit is refused inline with
 ## Versioning and releases
 
 1. Bump the plugin's `version` in the change being released.
-2. Keep live values in `release.json` (`SERVER`, `PUBLIC_KEY`, and per plugin
-   what it needs: a Payment Link, or the Ada mod's key, image digest and part
-   assets). A release
-   refuses `TBD` or a server that isn't https.
+2. Keep live values in `release.json` (`SERVER`, `PUBLIC_KEY`, and each
+   bought-once plugin's Payment Link). A release refuses `TBD` or a server
+   that isn't https.
 3. Tag `v*`. `release.yml` checks, tests, validates and builds every mod. It
    publishes to glyphh-ai/glyphh only when `PUBLISH_ENABLED` is `true`.
 
@@ -266,10 +265,7 @@ See the root README for the details.
 - Read, copy or send Claude's login, tokens or account data anywhere.
 - Call Glyphh for anything but the account: the device flow, the licence
   (at session start and at half its life), the plans, checkout, billing and
-  sign-out. A mod that runs rrotor (Ada) also asks
-  for its local runtime's token (`POST /v1/runtime/local`) and hands it, and
-  the plan's licence, to rrotor over rrotor's local API, never in a file, a
-  log or a command line. The sign-in sends the machine's name, a SHA-256 of its hardware
+  sign-out. The sign-in sends the machine's name, a SHA-256 of its hardware
   UUID and the mod's version, nothing else.
 - Send a person's data anywhere. Pages, files and settings stay on the
   machine. The Glyphh token goes only to the Glyphh server, in its

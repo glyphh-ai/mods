@@ -7,11 +7,6 @@
     },
     "games": {
       "PAYMENT_LINK": "TBD"
-    },
-    "ada": {
-      "RELEASE_PUBLIC_KEY": "TBD",
-      "IMAGE_DIGEST": "TBD",
-      "ASSETS": "TBD"
     }
   }
 }

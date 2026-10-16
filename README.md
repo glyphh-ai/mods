@@ -4,7 +4,8 @@ This private repository is the source of every Glyphh mod: plugins that change
 Claude's own interface and behaviour. `glyphh` is the account: a person signs
 in once, free, and their plan sets what each mod on the account may do (its
 limits, from the plan's licence). `drips` and `games` are bought once, per
-machine, with no account. `ada` runs models in rrotor, on the account.
+machine, with no account. Ada has no mod: Claude reaches it through the Glyphh
+connector, and its runtime is hosted.
 
 Buyers never see this repository. They install from
 [glyphh-ai/glyphh](https://github.com/glyphh-ai/glyphh), the public
@@ -26,7 +27,7 @@ writes it.
 | --- | --- |
 | `plugins/<mod>/` | One mod: its manifest, hooks, helper, types, tests and README. Each loads on its own. |
 | `shared/` | The modules copied into each plugin that uses them: `licence/` (the account), `unlock/` (bought once) and `overlay/` (drawing over Claude). See `shared/README.md`. |
-| `release.json` | The live values a release swaps in: `SERVER` (the Glyphh server), `PUBLIC_KEY` (the key it signs licences with), each bought-once plugin's `PAYMENT_LINK`, and the Ada mod's `RELEASE_PUBLIC_KEY` (what signs rrotor's parts), `IMAGE_DIGEST` (the rrotor image, pinned) and `ASSETS` (the Ada part's tarballs, per architecture). |
+| `release.json` | The live values a release swaps in: `SERVER` (the Glyphh server), `PUBLIC_KEY` (the key it signs licences with), each bought-once plugin's `PAYMENT_LINK`. |
 | `scripts/` | `sync-shared.mjs`, `check-shared.mjs` and `build.mjs`, with their tests in `scripts/test/`. |
 | `.github/workflows/` | `checks.yml` runs on every push and pull request. `release.yml` runs on a `v*` tag. |
 | `docs/mod-standard.md` | The standard every mod follows. Read it before starting one. |
@@ -87,16 +88,7 @@ Edit `shared/licence/`, `shared/unlock/` or `shared/overlay/`, never a plugin's 
 1. Bump `version` in the plugin's `.claude-plugin/plugin.json` for each mod
    that changed. The build never changes versions.
 2. Make sure `release.json` holds live values. The build refuses `TBD`, a
-   server that isn't https, a Stripe test Payment Link, an image digest that
-   isn't `sha256:<64 hex>`, or part assets short of an architecture, https,
-   a SHA-256 or a signature.
-   - The Ada mod's come from rrotor: `IMAGE_DIGEST` is the multi-arch
-     index's digest its CI reports when it pushes `ghcr.io/glyphh-ai/rrotor`
-     at the version `plugins/ada/hooks/ada/image.ts` names; `ASSETS` names
-     the tarballs of rrotor's `part-ada-<version>` release (`url`, the
-     `.sha256` file's hash and the `.sig` file's signature, for `amd64` and
-     `arm64`); `RELEASE_PUBLIC_KEY` is the public half of the key that
-     signed them (`scripts/part.py keygen` there).
+   server that isn't https, or a Stripe test Payment Link.
 3. Tag and push the tag: `git tag v2026.10.15 && git push origin v2026.10.15`.
 4. `release.yml` then does the following:
    - Checks the shared copies.
