@@ -4,7 +4,7 @@ This private repository is the source of every Glyphh mod: plugins that change
 Claude's own interface and behaviour. `glyphh` is the account: a person signs
 in once, free, and their plan sets what each mod on the account may do (its
 limits, from the plan's licence). `drips` and `games` are bought once, per
-machine, with no account. `ada` is designed.
+machine, with no account. `ada` runs models in rrotor, on the account.
 
 Buyers never see this repository. They install from
 [glyphh-ai/glyphh](https://github.com/glyphh-ai/glyphh), the public
