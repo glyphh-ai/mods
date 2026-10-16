@@ -14,6 +14,10 @@ marketplace:
 /plugin install <mod>@glyphh
 ```
 
+The mods sold once rather than by subscription (Glyphh Drip and Glyphh
+Arcade) live in their own source repository, `glyphh-ai/fun`, and release
+into the same marketplace.
+
 That repository holds only what a release build puts there: the README and
 LICENSE it already has, `.claude-plugin/marketplace.json`, and one folder per
 mod under `plugins/`. Nobody edits it by hand. The release workflow here
