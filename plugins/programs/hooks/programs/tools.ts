@@ -24,7 +24,7 @@ export const TOOLS = [
     name: 'program_call',
     description:
       'Run a program\'s function in rrotor\'s sandbox and answer its Result: done (data), needs_input (prompt, a value or a choice), ' +
-      'needs_approval (step and prompt: ask the person, then program_continue with {"approved": true|false}), needs_signin, or failed (step, reason).',
+      'needs_approval (step and prompt: ask the person, then program_continue with {"approved": true|false}), or failed (step, reason).',
     inputSchema: {
       type: 'object',
       properties: {
