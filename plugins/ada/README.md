@@ -6,7 +6,7 @@ runtime's address. This plugin carries the skill: when to reach for Ada, how to 
 call it.
 
 It installs nothing and runs nothing on your machine. Your runtime is on the Glyphh platform
-(https://app.glyphh.ai): start it there, connect Claude to its address once (Settings → Connectors → the URL shown
+(https://app.glyphh.ai): start it there, connect Claude to its address once with one Allow click (Settings → Connectors → the URL shown
 on Home), and the skill does the rest with the runtime's own tools (`models_list`, `model_deploy`, `model_call`,
 `model_continue`, `run_status`, `run_log`, `approvals`).
 

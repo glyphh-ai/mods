@@ -13,7 +13,8 @@ path, and the model says when it does not know. Nothing of Glyphh's sees the dat
 ## The runtime, and how you reach it
 
 The user's runtime is a connector in Claude: its MCP at `https://<machine>.glyphh.app/mcp`, added once from the
-Glyphh platform's Home page. Its tools are what you use:
+Glyphh platform's Home page with one Allow click (the runtime signs the user in through Glyphh; no key is typed).
+Its tools are what you use:
 
 | Tool | Does |
 |---|---|
