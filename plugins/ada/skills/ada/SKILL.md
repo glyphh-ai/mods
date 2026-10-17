@@ -33,7 +33,7 @@ A repo with three files; a version is a commit.
 
 - `glyphh.json`: the manifest. `"needs": ["ada"]`, `"data": true`, and `functions`, each with a JSON Schema of its
   inputs. Every Ada model has `record {data, outcome?}`, `query {data}`, `facts {data, top?}`,
-  `probabilities {data}`, `decide {data}` and `start`.
+  `probabilities {data}`, `learn {sample?}`, `decide {data}` and `start`.
 - `spec.json`: what a case looks like. `layers` of `segments` of `roles`; a role is a value (exact match), a
   `text_encoding: "bag_of_words"` text, a `numeric_config {min_value, max_value, bin_width}` number, or a key part
   (`key_part: true`, `similarity_weight: 0`). A layer or segment with `security_weight` (0 to 1) is cut from every
@@ -73,8 +73,10 @@ new error with the nearest precedent's cause, owner and runbook for a cleared ca
    from cases you will later test on; hold some out and report what they say.
 4. Commit, push to the user's GitHub repo, `model_deploy` the commit. The runtime answers `{model, version}`.
 5. Seed it: `model_call record` for each past case with its outcome (ten to fifty is a good start, hundreds is
-   better). With `refresh_every` set the model learns and calibrates as the seed goes in; otherwise a model function
-   that calls `ctx.ada.refresh()` does both on demand (the weights and the temperature are saved with the store).
+   better). Then `model_call learn`: the model weighs its roles by what its own precedents say and calibrates its
+   probabilities, both saved with the store; it answers the roles' weights, which tell the user what their cases
+   actually turn on. With `refresh_every` set the model does this on its own as cases arrive; call `learn` again
+   after a batch of new precedents otherwise. It needs ten graded precedents of two outcomes.
 6. Try it: `model_call query` and `decide` with new cases; `facts` to show why. Tune `min_sim`, the costs, the
    secured layers; redeploy.
 7. Software calls it with a runtime key (made on the platform's Keys page) through `@glyphh-ai/ada` or `glyphh-ada`,
