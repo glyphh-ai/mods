@@ -36,7 +36,8 @@ A repo with three files; a version is a commit.
   inputs. Every Ada model has `record {data, outcome?}`, `query {data}`, `facts {data, top?}`,
   `probabilities {data}`, `learn {sample?}`, `decide {data}` and `start`.
 - `spec.json`: what a case looks like. `layers` of `segments` of `roles`; a role is a value (exact match), a
-  `text_encoding: "bag_of_words"` text, a `numeric_config {min_value, max_value, bin_width}` number, or a key part
+  `text_encoding: "bag_of_words"` text (its words read through the kernel's seeded lexicon, and weighed by
+  `learn`), a `numeric_config {min_value, max_value, bin_width}` number, or a key part
   (`key_part: true`, `similarity_weight: 0`). A layer or segment with `security_weight` (0 to 1) is cut from every
   answer for a caller whose `clearance` is below it: put owners, causes, internal notes there. `temporal_source`
   names the role that is the case's time. `seed` and `dimension` fix the encoding; changing them re-encodes the store
@@ -102,6 +103,9 @@ all). A learning lever moved relearns the store there and then. The levers, with
 | `calibrate_by` | loss | `loss`: probabilities that mean what they say; `cost`: that decide best by `output.costs` |
 | `calibrate_sample` | 200 | The newest precedents a calibration holds out |
 | `refresh_every` | none | Learn and calibrate again every so many graded records |
+| `lexicon` | true | Read a text role's words through the kernel's seeds (WordNet's 77,817 words with synonyms and near words, the Moby list's 192,960 forms with their parts of speech), so related words correlate |
+| `word_pairs` | false | Learn pairs of common words that tell more together than apart ("top" + "up"); for a model whose intents are phrases |
+| `max_word_pairs` | 20 | How many word pairs at most |
 
 How to tune honestly: hold some cases out, change one lever, `learn`, score the held-out cases, keep what helped.
 Never score on the cases the model learned from. The benchmarks in `glyphh-ai/rrotor` (`benchmarks/credit`,
