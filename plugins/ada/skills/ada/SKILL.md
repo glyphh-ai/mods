@@ -106,6 +106,7 @@ all). A learning lever moved relearns the store there and then. The levers, with
 | `lexicon` | true | Read a text role's words through the kernel's seeds (WordNet's 77,817 words with synonyms and near words, the Moby list's 192,960 forms with their parts of speech), so related words correlate |
 | `word_pairs` | false | Learn pairs of common words that tell more together than apart ("top" + "up"); for a model whose intents are phrases |
 | `max_word_pairs` | 20 | How many word pairs at most |
+| `word_evidence` | 2 | How much a case's words, by what each says of every outcome, weigh on the vote (0: not at all); the weight per word per outcome a classic text model has |
 
 How to tune honestly: hold some cases out, change one lever, `learn`, score the held-out cases, keep what helped.
 Never score on the cases the model learned from. The benchmarks in `glyphh-ai/rrotor` (`benchmarks/credit`,

@@ -1,6 +1,6 @@
 {
   "name": "ada",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Ada: typed models that remember your precedents, in your own Glyphh runtime. The skill that builds a model with you, deploys it by commit and calls it on your runtime's connector. An add-on on the Glyphh account.",
   "author": {
     "name": "Glyphh AI",
