@@ -46,16 +46,16 @@ A repo with three files; a version is a commit.
   every wrong answer costs 1. `output.ask` prices asking a person in the same units: set, `decide` says `ask`
   wherever every outcome's expected cost is above it. The weights are usually learned, not written by hand (below);
   the costs and the price of asking are the user's business numbers.
-- `model.py`: `from rrotor import Result, ada`; `load(ctx)` calls `ada.open(ctx, min_sim=...)`; each function reads
+- `model.py`: `from rrotor import Result, ada`; `load(ctx)` calls `ada.open(ctx)`; each function reads
   `inputs`, uses `ctx.ada`, the kernel's `Model` (`record`, `query`, `facts`, `probabilities`, `learn`,
   `calibrate`, `refresh`, `decide`, `spec`, `space`) with `clearance=ctx.clearance`, and answers
   `Result.done(data)`. `ctx.ada.decide(data)` answers `{outcome, expected_cost, probabilities, ask}`: the outcome
   with the least expected cost under the calibrated probabilities and the spec's `output.costs`, and `ask` true
   when a person should answer instead (nothing known, or every answer dearer than `output.ask`). A model's own
   `decide` function returns that when `ask` is false, else `ctx.needs_input(prompt)` to ask, then records the
-  answer. `ada.open(ctx, min_sim=..., refresh_every=100)` makes the model learn its weights from its own store and
-  recalibrate every hundred graded cases, so it follows its cases without a redeploy; the learned weights live with
-  the store, over the spec file's.
+  answer. The model's levers live in `spec.json`'s `settings` (below, Tuning) and `refresh_every: 100` there makes
+  the model learn its weights from its own store and recalibrate every hundred graded cases, so it follows its
+  cases without a redeploy; the learned weights live with the store, over the spec file's.
 
 The worked example is `examples/ada_incidents` in `glyphh-ai/rrotor`: an app's incidents remembered, the fix for a
 new error with the nearest precedent's cause, owner and runbook for a cleared caller. Start from it.
@@ -78,10 +78,34 @@ new error with the nearest precedent's cause, owner and runbook for a cleared ca
    probabilities, both saved with the store; it answers the roles' weights, which tell the user what their cases
    actually turn on. With `refresh_every` set the model does this on its own as cases arrive; call `learn` again
    after a batch of new precedents otherwise. It needs ten graded precedents of two outcomes.
-6. Try it: `model_call query` and `decide` with new cases; `facts` to show why. Tune `min_sim`, the costs, the
-   secured layers; redeploy.
+6. Try it: `model_call query` and `decide` with new cases; `facts` to show why. Tune the levers live with
+   `model_call settings {changes}` (below, Tuning); change the costs, the secured layers and the shape in
+   `spec.json` and redeploy.
 7. Software calls it with a runtime key (made on the platform's Keys page) through `@glyphh-ai/ada` or `glyphh-ada`,
    or `POST https://<machine>.glyphh.app/v1/runs`.
+
+## Tuning
+
+Every lever is a setting, declared in `spec.json`'s `settings` and changeable live with `model_call settings
+{changes: {...}}` (kept with the store, over the spec's, until changed again; `model_call settings {}` reads them
+all). A learning lever moved relearns the store there and then. The levers, with their defaults:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `k` | 15 | How many nearest precedents a query votes over |
+| `min_sim` | 0.10 | The weighted similarity a precedent needs to vote: higher means "say nothing rather than guess" |
+| `word_weights` | true | Learn a weight per word of a text role (which words matter) |
+| `word_floor` | 0.35 | The least a learned word weighs; lower lets the telling words dominate, higher keeps every word voting |
+| `interactions` | true | Learn pairs of roles that tell more together than apart |
+| `max_interactions` | 5 | How many pairs at most |
+| `rare` | 5 | A value, word or pair seen fewer times than this is not learned from |
+| `calibrate_by` | loss | `loss`: probabilities that mean what they say; `cost`: that decide best by `output.costs` |
+| `calibrate_sample` | 200 | The newest precedents a calibration holds out |
+| `refresh_every` | none | Learn and calibrate again every so many graded records |
+
+How to tune honestly: hold some cases out, change one lever, `learn`, score the held-out cases, keep what helped.
+Never score on the cases the model learned from. The benchmarks in `glyphh-ai/rrotor` (`benchmarks/credit`,
+`benchmarks/banking77`) show the method and what each lever did on real data.
 
 ## Reading an answer
 
