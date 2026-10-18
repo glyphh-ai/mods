@@ -30,11 +30,13 @@ test('client: localhost:8080 by default, GLYPHH_SERVER_URL when set, the install
 test('client: refusals read as {error: {code, message, trace_id}}; E_LIMIT names limit, use and plan', async () => {
   const w = fakeHost()
   await signIn(w)
-  w.s.maxMembers = 2
-  const err = await api(w.gh, 'POST', '/v1/org/invites', { email: 'c@example.com' }).catch(e => e)
+  const err = await api(w.gh, 'POST', '/v1/billing/checkout', { plan: 'Enterprise' }).catch(e => e)
   expect(err).toBeInstanceOf(ApiError)
-  expect((err as ApiError).code).toBe('E_LIMIT')
-  expect(describe(err)).toBe('Upgrade to add more. (2 of 2 members used) (trace tr-1)')
+  expect(err).toMatchObject({ code: 'E_INVALID', status: 422, detail: { reason: 'not_self_serve' } })
+  expect(describe(err)).toBe('Enterprise is by contract: talk to us at sales@glyphh.ai. (trace tr-1)')
+  // A hosted machine past the plan's count, as glyphh_server.ops.limits says it.
+  const limit = new ApiError('E_LIMIT', 'Your Pro plan allows 3 hosted machines. Team allows more.', 403, { reason: 'machines', limit: 'machines', used: 3, max: 3, plan: 'Team' }, 'tr-2')
+  expect(describe(limit)).toBe('Your Pro plan allows 3 hosted machines. Team allows more. (3 of 3 machines used) (trace tr-2)')
   const missing = await api(w.gh, 'DELETE', '/v1/nothing/zzz').catch(e => e)
   expect(describe(missing)).toBe('No route DELETE /v1/nothing/zzz (trace tr-1)')
 })
@@ -67,7 +69,7 @@ test('license: checked with Ed25519 against the key, and kept', async () => {
   await signIn(w) // fetches the license too
   const info = await w.gh.state.license.get()
   expect(info?.ok).toBe(true)
-  expect(info?.plan).toBe('Pro')
+  expect(info).toMatchObject({ plan: 'Pro', limits: { machines: 3 }, features: { sync: true, offline: false } })
   expect(w.files.has(`${HOME}/.glyphh/license.json`)).toBe(true)
   expect((await loadLicense(w.gh))?.ok).toBe(true)
 
@@ -89,7 +91,7 @@ test('license: expired is not valid; JWS and canonical-JSON forms check too', as
   const b64 = (b: Uint8Array) => btoa(String.fromCharCode(...b))
   const b64u = (b: Uint8Array) => b64(b).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
   const key = { kty: 'OKP', crv: 'Ed25519', x: b64u(publicKey) }
-  const claims = { plan: 'Team', limits: { max_members: null } }
+  const claims = { plan: 'Team', limits: { machines: 10 }, features: { sync: true } }
   const head = b64u(new TextEncoder().encode('{"alg":"EdDSA"}'))
   const body = b64u(new TextEncoder().encode(JSON.stringify(claims)))
   const jws = `${head}.${body}.${b64u(await sign(new TextEncoder().encode(`${head}.${body}`)))}`
@@ -105,11 +107,13 @@ test("license: the server's own answer, signed by glyphh_server.ops.license, che
     user_id: '22222222-2222-2222-2222-222222222222',
     org_id: '33333333-3333-3333-3333-333333333333',
     plan: 'Café Pro',
-    limits: { max_members: 1, max_installs: 5 },
+    limits: { machines: 3 },
+    features: { sync: true, ha: false, offline: false, sso: false },
+    mods: { ada: { limits: { precedents: null } } },
     expires_at: '2099-01-01T00:00:00Z',
   }
-  const signature = 'm9Ek926JXUmX9eifDNGAFBZdEtlk5gS5R8YtnDS5sX209Iat2ynD17hIj4K1UcUOS8pT4aXZG5erZwj49hPwBw=='
-  const key = { alg: 'Ed25519', public_key: 'RvajuVw4Bepp7F7kccgcXhZXtpJ2gK093YPSIrk+6mA=' }
-  expect(await check({ payload, signature }, key, 0)).toMatchObject({ ok: true, plan: 'Café Pro' })
+  const signature = 'hzExdxvpRoHPoXi9LPFma4U7Eq3QxZhcP/ta096BPCpK0S55hNqwk0RHwTspehBGV18dSSlzEURNFCQ+pb9qDQ=='
+  const key = { alg: 'Ed25519', public_key: 'bnoc3Smwt4/ROvTFWY/v9O8qlxZuPKby5Pv8zYBQW/E=' }
+  expect(await check({ payload, signature }, key, 0)).toMatchObject({ ok: true, plan: 'Café Pro', limits: { machines: 3 }, features: { sync: true } })
   expect((await check({ payload: { ...payload, plan: 'Team' }, signature }, key, 0)).ok).toBe(false)
 })

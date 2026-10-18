@@ -9,8 +9,10 @@ export const str = (v: unknown, fallback = ''): string => (v === undefined || v 
 export const userOf = (me: Json | null): Json => obj(me?.user ?? me)
 export const orgOf = (me: Json | null): Json => obj(me?.org)
 export const planOf = (me: Json | null): Json => obj(me?.plan ?? orgOf(me).plan)
-export const limitsOf = (me: Json | null): Json => obj(planOf(me).limits ?? me?.limits)
-export const usedOf = (me: Json | null): Json => obj(me?.used ?? me?.usage)
+/** The managed precedents the org's hosted runtimes hold, of the plan's bucket: `{used, limit}`. */
+export const precedentsOf = (me: Json | null): Json => obj(me?.precedents)
+/** The hosted machines' month so far: `{month, month_to_date_cents, machines}`. */
+export const hostingOf = (me: Json | null): Json => obj(me?.hosting)
 
 export const isAdmin = (me: Json | null): boolean => str(userOf(me).role ?? me?.role ?? orgOf(me).role) === 'admin'
 
@@ -33,8 +35,27 @@ export const isSubscribed = (me: Json | null): boolean => {
   return ['active', 'trialing', 'past_due'].includes(str(org.billing_status))
 }
 
+/** Cents as dollars: whole dollars when there are no cents, e.g. $99 or $12.34. */
+export const money = (cents: number): string => `$${(cents / 100).toFixed(cents % 100 ? 2 : 0)}`
+
+/** A count with thousands marked: 100000 is 100,000. */
+export const count = (n: unknown): string => (typeof n === 'number' ? String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : str(n, '0'))
+
+/** Bought with Stripe Checkout; Enterprise is not, it is by contract. */
+export const isSelfServe = (plan: Json): boolean => plan.self_serve !== false
+
+/** A plan's price as GET /v1/plans says it: $99/month, $0, or By contract
+ *  (Enterprise's price is each customer's own and is never shown). */
 export const priceText = (plan: Json): string => {
-  const cents = plan.seat_price_cents ?? obj(plan.version).seat_price_cents
-  if (typeof cents === 'number') return `$${(cents / 100).toFixed(cents % 100 ? 2 : 0)}/seat/mo`
-  return plan.price !== undefined ? str(plan.price) : ''
+  const cents = plan.price_cents
+  if (typeof cents !== 'number') return 'By contract'
+  return plan.interval === 'month' || plan.interval === 'year' ? `${money(cents)}/${plan.interval}` : money(cents)
+}
+
+/** A plan's managed precedents and hosted machines, e.g. 100,000 managed
+ *  precedents · 3 hosted machines; null is unlimited, 0 is none. */
+export const planLimits = (plan: Json): string => {
+  const limits = obj(plan.limits)
+  const of = (v: unknown, what: string) => (v === null || v === undefined ? `unlimited ${what}` : v === 0 ? `no ${what}` : `${count(v)} ${what}`)
+  return `${of(limits.precedents, 'managed precedents')} · ${of(limits.machines, 'hosted machines')}`
 }

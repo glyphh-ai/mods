@@ -88,20 +88,23 @@ async function stripePage(gh: Host, path: string, body: unknown, what: string, s
   })
 }
 
-export const checkout = (gh: Host, plan: string, seats: number, surface?: RenderSurface) =>
-  stripePage(gh, '/v1/billing/checkout', { plan, seats }, 'Checkout', surface)
+/** Stripe Checkout for a self-serve plan (Pro or Team): its flat price and
+ *  the metered hosting, on one subscription. */
+export const checkout = (gh: Host, plan: string, surface?: RenderSurface) =>
+  stripePage(gh, '/v1/billing/checkout', { plan }, 'Checkout', surface)
 
 export const portal = (gh: Host, surface?: RenderSurface) =>
   stripePage(gh, '/v1/billing/portal', undefined, "Stripe's billing portal", surface)
 
+/** Another self-serve plan, prorated by Stripe; Free cancels the subscription
+ *  (refused while the org has hosted machines). */
 export const changePlan = (gh: Host, plan: string, surface?: RenderSurface) =>
   stripePage(gh, '/v1/billing/plan', { plan }, `Plan changed to ${plan}`, surface).then(() => loadMe(gh).catch(() => undefined))
 
-export const changeSeats = (gh: Host, text: string) => {
-  const seats = Number(text.trim())
-  if (!Number.isInteger(seats) || seats < 1) return say(gh, 'Seats must be a whole number, 1 or more.', true)
-  return act(gh, `Seats set to ${seats}.`, async () => {
-    await api(gh, 'POST', '/v1/billing/seats', { seats })
-    await loadMe(gh)
-  })
+export const SALES = 'sales@glyphh.ai'
+
+/** Enterprise is by contract, never checked out: the sales address, copied. */
+export async function talkToUs(gh: Host, surface?: RenderSurface) {
+  const copied = await gh.copy(SALES, surface).catch(() => false)
+  await say(gh, `Enterprise is by contract: write to ${SALES}${copied ? ' (copied)' : ''}.`)
 }

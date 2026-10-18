@@ -26,7 +26,7 @@ test('device flow: code shown, link opened in the browser pane, polls honour int
   expect(tokenPolls(w)).toBe(3) // the token
   expect(await w.gh.state.auth.get()).toEqual({ status: 'in', install_id: 'i1' })
   expect(w.modes.get(`${HOME}/.glyphh/install.json`)).toBe('600')
-  expect((await w.gh.state.me.get())?.user).toMatchObject({ email: 'chris@example.com' })
+  expect(await w.gh.state.me.get()).toMatchObject({ email: 'chris@example.com' })
 
   await w.advance(60_000)
   expect(tokenPolls(w)).toBe(3) // polling stopped

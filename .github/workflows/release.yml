@@ -45,7 +45,7 @@ jobs:
           for dir in plugins/*/; do
             [ -d "$dir" ] || continue
             echo "::group::${dir}"
-            if [ -f "$dir/hooks/hooks.json" ]; then claude plugin test "$dir"; else echo "no hooks: a skill-only plugin, no tests to run"; fi
+            if grep -qs '"modules"' "$dir/hooks/hooks.json"; then claude plugin test "$dir"; else echo "no hooks module: command hooks or a skill-only plugin, no function-hook tests to run"; fi
             claude plugin validate "$dir"
             echo "::endgroup::"
           done

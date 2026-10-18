@@ -105,3 +105,40 @@ test('/glyphh after the sign-in card signed in (install.json written mid-session
   expect(r.text).toStartWith('Glyphh: signed in as chris@example.com')
   expect(w.server.s.calls.some(c => c.path === '/v1/device/code')).toBe(false)
 })
+
+for (const surface of SURFACES) {
+  test(`${surface}: Plan shows precedents, hosting and the plans; Billing offers checkout, Talk to us and no seats`, async ($, on) => {
+    const w = world(on, surface)
+    w.files.set(`${HOME}/.glyphh/install.json`, JSON.stringify({ install_id: 'i1', token: w.server.TOKEN }))
+    await $.session.start({ cwd: '/proj', surface, isInteractive: true })
+    const ui = await $.ui.mount(pane(surface))
+    await ui.press({ key: 'sec-plan' })
+    expect(await ui.find({ type: 'Text', text: /Managed precedents: none on this plan/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Hosting this month \(2026-10\): \$0/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Team · \$299\/month · 1,000,000 managed precedents · 10 hosted machines/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Enterprise · By contract/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /seat/ })).toBeUndefined()
+
+    await ui.press({ key: 'sec-billing' })
+    expect((await ui.find({ type: 'Button', key: 'bill-plan-Pro' }))?.props.label).toBe('checkout')
+    expect((await ui.find({ type: 'Button', key: 'bill-plan-Enterprise' }))?.props.label).toBe('Talk to us')
+    expect(await ui.find({ type: 'Button', key: 'bill-plan-Free' })).toBeUndefined() // the plan it is on
+    expect(await ui.find({ type: 'Input', key: 'bill-seats' })).toBeUndefined()
+    await ui.press({ key: 'bill-plan-Pro' })
+    expect(w.server.s.calls.at(-1)).toMatchObject({ path: '/v1/billing/checkout', body: { plan: 'Pro' } })
+
+    w.server.s.billingStatus = 'active'
+    w.server.s.plan = 'Pro'
+    await ui.press({ key: 'sec-billing' })
+    expect((await ui.find({ type: 'Button', key: 'bill-plan-Team' }))?.props.label).toBe('switch')
+    expect((await ui.find({ type: 'Button', key: 'bill-plan-Free' }))?.props.label).toBe('switch')
+    expect(await ui.find({ type: 'Button', key: 'bill-plan-Pro' })).toBeUndefined()
+
+    w.server.s.plan = 'Enterprise'
+    await ui.press({ key: 'sec-billing' })
+    expect(await ui.find({ type: 'Text', text: /set in your contract/ })).toBeDefined()
+    expect(await ui.find({ type: 'Button', key: 'bill-talk' })).toBeDefined()
+    expect(await ui.find({ type: 'Button', key: 'bill-plan-Team' })).toBeUndefined()
+    expect(await ui.find({ type: 'Button', key: 'bill-portal' })).toBeDefined()
+  })
+}

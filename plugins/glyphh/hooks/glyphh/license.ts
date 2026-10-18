@@ -70,6 +70,7 @@ export function toInfo(claims: Json, ok: boolean, error?: string): LicenseInfo {
     error,
     plan: typeof plan === 'string' ? plan : plan ? String(plan.name ?? '') : undefined,
     limits: (claims.limits ?? (plan as Json)?.limits ?? {}) as Record<string, number | null>,
+    features: (claims.features ?? {}) as Record<string, boolean>,
     expires_at: typeof exp === 'number' ? new Date(exp * 1000).toISOString() : (exp as string | undefined),
   }
 }
