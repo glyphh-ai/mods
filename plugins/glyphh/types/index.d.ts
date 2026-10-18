@@ -21,8 +21,17 @@ export type GlyphhNote = { text: string; isError: boolean; link?: string }
 /** A JSON object the server answered, kept as it came. */
 export type Json = { [key: string]: unknown }
 
-/** The checked license: what it says, and whether it checked out. */
-export type LicenseInfo = { ok: boolean; error?: string; plan?: string; limits: Record<string, number | null>; expires_at?: string }
+/** The checked license: what it says, and whether it checked out. `limits`
+ *  is the plan's hosted machines (`machines`, null unlimited); `features` its
+ *  flags (`sync`, `ha`, `offline`, `sso`). */
+export type LicenseInfo = {
+  ok: boolean
+  error?: string
+  plan?: string
+  limits: Record<string, number | null>
+  features: Record<string, boolean>
+  expires_at?: string
+}
 
 declare module 'claude-code' {
   interface PluginState {

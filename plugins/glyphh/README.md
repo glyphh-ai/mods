@@ -26,12 +26,17 @@ the name (a command or skill already has it), the command is `/glyphh-account`.
 | Sign in | Device flow: shows the code and the link; on the desktop opens `verification_uri_complete` in Claude's browser pane, in a terminal prints it; polls `/v1/device/token` at `interval`, 5 s slower on `slow_down`, until the token, `expired_token` or `access_denied`. Copy link, Cancel |
 | Account | Name (Enter renames), email, sign-in providers, installs (revoke one; revoking this one signs out), Sign out |
 | Org | Name (admin renames), members with roles (admin removes, never the admin), invites: send (the link is shown to copy), revoke, pending |
-| Plan | The plan, its limits and what is used (`/v1/me`), the license this machine holds (valid, until), every plan (`/v1/plans`) |
-| Billing (admin) | Checkout (not subscribed) or switch plan (subscribed), seats, Card and invoices (Stripe's portal); Stripe's pages open in the browser pane, or as a link in a terminal |
+| Plan | The plan; the managed precedents the org's hosted runtimes hold of the plan's bucket and the hosting this month, all in and machine by machine (`/v1/me`); the license this machine holds (valid, until, hosted machines, features); every plan by its price, managed precedents and hosted machines (`/v1/plans`), Enterprise "By contract" |
+| Billing (admin) | Checkout `{plan}` for Pro or Team (not subscribed) or switch plan (subscribed; Free cancels, refused while hosted machines remain), **Talk to us** for Enterprise (`sales@glyphh.ai`, copied; an Enterprise org's plan is set in its contract), Card and invoices (Stripe's portal); Stripe's pages open in the browser pane, or as a link in a terminal |
+
+Glyphh never charges per seat, per model or per install: members, installs,
+models and self-hosted runtimes are unlimited on every plan, and the panel
+counts none of them. What a plan sells is managed precedents and hosted
+machines (the server's `docs/pricing.md`).
 
 Every action ends in one line under the tabs: what it did, or why not. A
-refusal reads `{"error": {code, message, trace_id}}`; `E_LIMIT` names the
-limit, what is used and the plan that lifts it. A 401 from
+refusal reads `{"error": {code, message, trace_id}}`; `E_LIMIT` (hosted
+machines) names the limit, what is used and the plan that lifts it. A 401 from
 any call means this install was revoked: the machine signs out.
 
 **Signing in, end to end:** `/glyphh signin` (or **Sign in** in the panel) →

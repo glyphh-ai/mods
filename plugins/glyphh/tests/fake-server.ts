@@ -20,12 +20,13 @@ function newState() {
       { user_id: 'u2', name: 'Sam', email: 'sam@example.com', role: 'member' },
     ] as Json[],
     invites: [] as Json[],
-    maxMembers: 10,
     installs: [{ id: 'i1', name: 'mac', surface: 'desktop' }, { id: 'i2', name: 'laptop', surface: 'cli' }] as Json[],
     role: 'admin',
     providers: ['google'] as string[],
     name: 'Chris',
     orgName: 'Glyphh',
+    plan: 'Free',
+    billingStatus: 'none',
     licenseTamper: false,
     licenseExpires: '2999-01-01T00:00:00Z',
   }
@@ -33,13 +34,45 @@ function newState() {
 
 type State = ReturnType<typeof newState>
 
-const meOf = (s: State) => ({
-  user: { id: 'u1', name: s.name, email: 'chris@example.com', role: s.role },
-  providers: [...s.providers],
-  org: { id: 'o1', name: s.orgName, seats: 2, billing_status: 'active' },
-  plan: { name: 'Free', version: 1, limits: { max_members: 1, max_installs: 1 } },
-  used: { members: s.members.length, seats: 2, installs: s.installs.length },
+// GET /v1/plans as the server lists them: Enterprise's price is each
+// contract's own, so null; it is never checked out.
+const plan = (name: string, price_cents: number | null, interval: string | null, machines: number | null, precedents: number | null) => ({
+  name,
+  version: 1,
+  price_cents,
+  interval,
+  self_serve: price_cents !== null,
+  limits: { machines, precedents },
+  features: { sync: name !== 'Free', ha: name === 'Enterprise', offline: name === 'Enterprise', sso: name === 'Enterprise' },
+  markup_hidden: true,
 })
+
+export const PLANS = [
+  plan('Free', 0, null, 0, 0),
+  plan('Pro', 9900, 'month', 3, 100000),
+  plan('Team', 29900, 'month', 10, 1000000),
+  plan('Enterprise', null, 'year', null, null),
+]
+
+const meOf = (s: State) => {
+  const p = PLANS.find(x => x.name === s.plan) ?? PLANS[0]!
+  const hosted = p.limits.machines !== 0
+  return {
+    id: 'u1',
+    email: 'chris@example.com',
+    name: s.name,
+    role: s.role,
+    providers: [...s.providers],
+    org: { id: 'o1', name: s.orgName, billing_status: s.billingStatus, renews_at: null, plan_until: s.plan === 'Enterprise' ? '2027-10-18T23:59:59Z' : null },
+    plan: p,
+    precedents: { used: hosted ? 12345 : 0, limit: p.limits.precedents },
+    hosting: {
+      month: '2026-10',
+      month_to_date_cents: hosted ? 1234 : 0,
+      machines: hosted ? [{ id: 'm1', name: 'ada-prod', size: 'small', cents: 1234 }] : [],
+    },
+  }
+}
 
 const refuse = (status: number, code: string, message: string, detail: Json = {}) => ({
   status,
@@ -47,7 +80,13 @@ const refuse = (status: number, code: string, message: string, detail: Json = {}
 })
 
 async function license(s: State) {
-  const claims = { plan: 'Pro', limits: { max_members: 10 }, expires_at: s.licenseExpires }
+  const claims = {
+    plan: 'Pro',
+    limits: { machines: 3 },
+    features: { sync: true, ha: false, offline: false, sso: false },
+    mods: { ada: { limits: { precedents: null } } },
+    expires_at: s.licenseExpires,
+  }
   const payload = JSON.stringify(claims)
   const { sign } = await keyPair(SEED)
   const sig = await sign(new TextEncoder().encode(payload))
@@ -98,19 +137,33 @@ function adminRoute(s: State, c: Call, key: string, id: string, ok: (b?: unknown
     case 'DELETE /v1/org/members/:id': s.members = s.members.filter(m => m.user_id !== id); return ok()
     case 'GET /v1/org/invites': return ok({ invites: s.invites })
     case 'POST /v1/org/invites': {
-      const used = s.members.length + s.invites.length
-      if (used >= s.maxMembers) return refuse(403, 'E_LIMIT', 'Upgrade to add more.', { limit: 'members', used, max: s.maxMembers, plan: 'Pro' })
       s.invites.push({ id: `inv-${s.invites.length + 1}`, email: c.body.email })
       return ok({ id: 'inv-1', link: 'https://glyphh.test/join?t=abc' })
     }
     case 'DELETE /v1/org/invites/:id': s.invites = s.invites.filter(i => i.id !== id); return ok()
-    case 'GET /v1/plans': return ok({ plans: [{ name: 'Free', seat_price_cents: 0 }, { name: 'Pro', seat_price_cents: 800 }] })
-    case 'POST /v1/billing/checkout': return ok({ url: 'https://checkout.stripe.test/c1' })
+    case 'GET /v1/plans': return ok(PLANS)
+    case 'POST /v1/billing/checkout': return checkout(s, c, ok)
     case 'POST /v1/billing/portal': return ok({ url: 'https://billing.stripe.test/p1' })
-    case 'POST /v1/billing/plan': return ok({})
-    case 'POST /v1/billing/seats': return ok({ seats: c.body.seats })
+    case 'POST /v1/billing/plan': return changePlan(s, c, ok)
     default: return refuse(404, 'E_NOT_FOUND', `No route ${key}`)
   }
+}
+
+
+// The server's refusals: Enterprise is never checked out, a subscribed org
+// changes plan instead, an Enterprise org's plan is its contract's.
+function checkout(s: State, c: Call, ok: (b?: unknown) => { status: number; body: unknown }) {
+  const p = PLANS.find(x => x.name === c.body.plan)
+  if (p && !p.self_serve) return refuse(422, 'E_INVALID', 'Enterprise is by contract: talk to us at sales@glyphh.ai.', { reason: 'not_self_serve' })
+  if (s.billingStatus === 'active') return refuse(409, 'E_CONFLICT', 'Your org is already subscribed: change plan instead.', { reason: 'subscribed' })
+  return ok({ url: 'https://checkout.stripe.test/c1' })
+}
+
+function changePlan(s: State, c: Call, ok: (b?: unknown) => { status: number; body: unknown }) {
+  if (s.plan === 'Enterprise') return refuse(409, 'E_CONFLICT', 'Your Enterprise plan is by contract: talk to us at sales@glyphh.ai.', { reason: 'contract' })
+  if (s.billingStatus !== 'active') return refuse(409, 'E_CONFLICT', "Your org isn't subscribed: start with checkout.", { reason: 'not_subscribed' })
+  s.plan = String(c.body.plan)
+  return ok({ id: 'o1', name: s.orgName })
 }
 
 
