@@ -144,3 +144,8 @@ For a local server's licences to check out, run it with
 `GLYPHH_LICENSE_KEY` set to the dev key's private half (base64 of its raw 32
 bytes); a server started without one makes a new key, and the mods then
 ignore its licences.
+
+
+## License
+
+Apache-2.0. See LICENSE and NOTICE. Copyright 2026 Chris Timmerman / Glyphh AI LLC. More about it: https://glyphh.ai/projects/mods
